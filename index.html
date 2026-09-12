@@ -30,13 +30,11 @@
 const h = React.createElement;
 const { useState, useEffect, useMemo, useRef } = React;
 
-/* ============ SUPABASE CLOUD ============ */
 const SUPABASE_URL = "https://kzgqsjbayluqyhjhytkt.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_NllVu5uINdJpICN59kjKQA_ynf6GoUZ";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const EMAIL_DOMAIN = "@ultraledger.local";
 
-/* ============ INDEXEDDB HELPERS (local cache) ============ */
 const DB_NAME = "ultra_ledger_db";
 const DB_VERSION = 1;
 const STORE_NAME = "app_state";
@@ -87,7 +85,6 @@ if (typeof document !== "undefined") {
       font-family: Inter, "Segoe UI", Arial, sans-serif !important;
       font-weight: 600 !important;
       -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
     }
     table td { font-size: 13px !important; font-weight: 700 !important; padding-top: 2px !important; padding-bottom: 2px !important; }
     table th { font-size: 12px !important; font-weight: 900 !important; text-transform: uppercase; letter-spacing: 0.03em; padding-top: 6px !important; padding-bottom: 6px !important; }
@@ -100,11 +97,11 @@ if (typeof document !== "undefined") {
 }
 
 const THEMES = {
-  original: { label:"Original", dot1:"#000", dot2:"#fff", pageBg:"bg-[#fafafa]", header:"bg-white border-gray-200", sidebarBg:"bg-white", sidebarActive:"bg-black text-white border-black", sidebarInactive:"bg-white text-[#444] border-gray-200 hover:bg-gray-50", addBtn:"bg-black text-white", closingBtn:"bg-[#7ec8f0] text-black", exportBtn:"bg-black text-white", exportBtnAlt:"bg-white text-black border border-gray-200", card:"bg-white border-gray-200 shadow-sm", text:"text-gray-900", subText:"text-gray-500", input:"bg-white border-gray-200 text-black", tableHeader:"bg-[#f3f3f3]", modBtn:"bg-[#fff8c4] text-[#8a6d00] border border-[#f5e7a0]", delBtn:"bg-[#ffe5e5] text-[#b91c1c] border border-[#ffcfcf]", logoBg:"bg-black text-white" },
-  ocean: { label:"Ocean", dot1:"#0f172a", dot2:"#06b6d4", pageBg:"bg-[#f8fafc]", header:"bg-white border-slate-200", sidebarBg:"bg-white", sidebarActive:"bg-cyan-600 text-white border-cyan-600", sidebarInactive:"bg-white text-slate-600 border-slate-200 hover:bg-slate-50", addBtn:"bg-cyan-600 text-white hover:bg-cyan-700", closingBtn:"bg-cyan-500 text-white", exportBtn:"bg-slate-900 text-white", exportBtnAlt:"bg-white text-slate-700 border border-slate-200", card:"bg-white border-slate-200 shadow-sm", text:"text-slate-900", subText:"text-slate-500", input:"bg-white border-slate-200 text-slate-900", tableHeader:"bg-slate-100", modBtn:"bg-yellow-50 text-yellow-700 border border-cyan-200", delBtn:"bg-red-50 text-red-600 border border-red-200", logoBg:"bg-slate-900 text-white" },
-  forest: { label:"Forest", dot1:"#14532d", dot2:"#84cc16", pageBg:"bg-[#f6faf6]", header:"bg-white border-green-100", sidebarBg:"bg-white", sidebarActive:"bg-[#14532d] text-white border-[#14532d]", sidebarInactive:"bg-white text-green-800 border-green-100 hover:bg-green-50", addBtn:"bg-[#14532d] text-white", closingBtn:"bg-lime-500 text-[#14532d] font-bold", exportBtn:"bg-[#14532d] text-white", exportBtnAlt:"bg-white text-green-800 border border-green-200", card:"bg-white border-green-100 shadow-sm", text:"text-green-950", subText:"text-green-700", input:"bg-white border-green-200 text-green-900", tableHeader:"bg-green-50", modBtn:"bg-yellow-50 text-yellow-800 border border-green-200", delBtn:"bg-red-50 text-red-700 border border-red-200", logoBg:"bg-[#14532d] text-white" },
-  sunset: { label:"Sunset", dot1:"#1c1917", dot2:"#f97316", pageBg:"bg-[#fffaf5]", header:"bg-white border-orange-100", sidebarBg:"bg-white", sidebarActive:"bg-orange-500 text-white border-orange-500", sidebarInactive:"bg-white text-stone-600 border-orange-100 hover:bg-orange-50", addBtn:"bg-orange-500 text-white", closingBtn:"bg-amber-500 text-white", exportBtn:"bg-stone-900 text-white", exportBtnAlt:"bg-white text-stone-700 border border-orange-200", card:"bg-white border-orange-100 shadow-sm", text:"text-stone-900", subText:"text-stone-500", input:"bg-white border-orange-200 text-stone-900", tableHeader:"bg-orange-50", modBtn:"bg-amber-50 text-amber-800 border border-orange-200", delBtn:"bg-red-50 text-red-700 border border-red-200", logoBg:"bg-stone-900 text-white" },
-  midnight: { label:"Midnight Dark", dot1:"#000", dot2:"#fff", pageBg:"bg-black", header:"bg-black border-zinc-800", sidebarBg:"bg-black", sidebarActive:"bg-zinc-800 text-white border-zinc-700", sidebarInactive:"bg-[#111] text-zinc-400 border-zinc-800 hover:bg-zinc-900 hover:text-white", addBtn:"bg-white text-black font-semibold", closingBtn:"bg-zinc-800 text-white border border-zinc-700", exportBtn:"bg-white text-black", exportBtnAlt:"bg-[#111] text-zinc-300 border border-zinc-800", card:"bg-[#111] border-zinc-800", text:"text-white", subText:"text-zinc-500", input:"bg-zinc-900 border-zinc-800 text-white", tableHeader:"bg-zinc-900", modBtn:"bg-zinc-800 text-yellow-200 border border-zinc-700", delBtn:"bg-zinc-900 text-red-300 border border-zinc-800", logoBg:"bg-white text-black" }
+  original: { label:"Original", dot1:"#000", dot2:"#fff", pageBg:"bg-[#fafafa]", header:"bg-white border-gray-200", sidebarBg:"bg-white", sidebarActive:"bg-black text-white border-black", sidebarInactive:"bg-white text-[#444] border-gray-200 hover:bg-gray-50", addBtn:"bg-black text-white", closingBtn:"bg-[#7ec8f0] text-black", exportBtn:"bg-black text-white", exportBtnAlt:"bg-white text-black border border-gray-200", card:"bg-white border-gray-200 shadow-sm", text:"text-gray-900", input:"bg-white border-gray-200 text-black", tableHeader:"bg-[#f3f3f3]", modBtn:"bg-[#fff8c4] text-[#8a6d00] border border-[#f5e7a0]", delBtn:"bg-[#ffe5e5] text-[#b91c1c] border border-[#ffcfcf]", logoBg:"bg-black text-white" },
+  ocean: { label:"Ocean", dot1:"#0f172a", dot2:"#06b6d4", pageBg:"bg-[#f8fafc]", header:"bg-white border-slate-200", sidebarBg:"bg-white", sidebarActive:"bg-cyan-600 text-white border-cyan-600", sidebarInactive:"bg-white text-slate-600 border-slate-200 hover:bg-slate-50", addBtn:"bg-cyan-600 text-white hover:bg-cyan-700", closingBtn:"bg-cyan-500 text-white", exportBtn:"bg-slate-900 text-white", exportBtnAlt:"bg-white text-slate-700 border border-slate-200", card:"bg-white border-slate-200 shadow-sm", text:"text-slate-900", input:"bg-white border-slate-200 text-slate-900", tableHeader:"bg-slate-100", modBtn:"bg-yellow-50 text-yellow-700 border border-cyan-200", delBtn:"bg-red-50 text-red-600 border border-red-200", logoBg:"bg-slate-900 text-white" },
+  forest: { label:"Forest", dot1:"#14532d", dot2:"#84cc16", pageBg:"bg-[#f6faf6]", header:"bg-white border-green-100", sidebarBg:"bg-white", sidebarActive:"bg-[#14532d] text-white border-[#14532d]", sidebarInactive:"bg-white text-green-800 border-green-100 hover:bg-green-50", addBtn:"bg-[#14532d] text-white", closingBtn:"bg-lime-500 text-[#14532d] font-bold", exportBtn:"bg-[#14532d] text-white", exportBtnAlt:"bg-white text-green-800 border border-green-200", card:"bg-white border-green-100 shadow-sm", text:"text-green-950", input:"bg-white border-green-200 text-green-900", tableHeader:"bg-green-50", modBtn:"bg-yellow-50 text-yellow-800 border border-green-200", delBtn:"bg-red-50 text-red-700 border border-red-200", logoBg:"bg-[#14532d] text-white" },
+  sunset: { label:"Sunset", dot1:"#1c1917", dot2:"#f97316", pageBg:"bg-[#fffaf5]", header:"bg-white border-orange-100", sidebarBg:"bg-white", sidebarActive:"bg-orange-500 text-white border-orange-500", sidebarInactive:"bg-white text-stone-600 border-orange-100 hover:bg-orange-50", addBtn:"bg-orange-500 text-white", closingBtn:"bg-amber-500 text-white", exportBtn:"bg-stone-900 text-white", exportBtnAlt:"bg-white text-stone-700 border border-orange-200", card:"bg-white border-orange-100 shadow-sm", text:"text-stone-900", input:"bg-white border-orange-200 text-stone-900", tableHeader:"bg-orange-50", modBtn:"bg-amber-50 text-amber-800 border border-orange-200", delBtn:"bg-red-50 text-red-700 border border-red-200", logoBg:"bg-stone-900 text-white" },
+  midnight: { label:"Midnight Dark", dot1:"#000", dot2:"#fff", pageBg:"bg-black", header:"bg-black border-zinc-800", sidebarBg:"bg-black", sidebarActive:"bg-zinc-800 text-white border-zinc-700", sidebarInactive:"bg-[#111] text-zinc-400 border-zinc-800 hover:bg-zinc-900 hover:text-white", addBtn:"bg-white text-black font-semibold", closingBtn:"bg-zinc-800 text-white border border-zinc-700", exportBtn:"bg-white text-black", exportBtnAlt:"bg-[#111] text-zinc-300 border border-zinc-800", card:"bg-[#111] border-zinc-800", text:"text-white", input:"bg-zinc-900 border-zinc-800 text-white", tableHeader:"bg-zinc-900", modBtn:"bg-zinc-800 text-yellow-200 border border-zinc-700", delBtn:"bg-zinc-900 text-red-300 border border-zinc-800", logoBg:"bg-white text-black" }
 };
 
 const fmtINR = (n) => isNaN(n) ? "₹0/-" : "₹" + Number(n).toLocaleString("en-IN") + "/-";
@@ -264,10 +261,118 @@ function LoginScreen({ onLogin }) {
         h("button", { type:"submit", disabled: busy, className:"mt-5 w-full h-12 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white font-black text-[14px]" }, busy ? "..." : "LOGIN"))));
 }
 
-function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
-  const [loaded, setLoaded] = useState(true);
-  const [loadingMsg, setLoadingMsg] = useState("Ready");
+function ChangePasswordCard({ T }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
 
+  async function changePassword() {
+    setMsg(null);
+    if (!currentPassword) return setMsg({ type:"err", text:"Current password required" });
+    if (!newPassword || newPassword.length < 6) return setMsg({ type:"err", text:"New password min 6 characters" });
+    if (newPassword !== confirmPassword) return setMsg({ type:"err", text:"Passwords do not match" });
+    if (currentPassword === newPassword) return setMsg({ type:"err", text:"New password must be different" });
+
+    setBusy(true);
+    try {
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user || !user.email) throw new Error("Session expired. Please logout and login again.");
+
+      const { error: verifyErr } = await sb.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword
+      });
+      if (verifyErr) throw new Error("Current password is wrong");
+
+      const { error: updateErr } = await sb.auth.updateUser({ password: newPassword });
+      if (updateErr) throw new Error(updateErr.message || "Failed to update password");
+
+      setMsg({ type:"ok", text:"✅ Password changed successfully!" });
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      setTimeout(() => setMsg(null), 4000);
+    } catch (e) {
+      setMsg({ type:"err", text: e.message || "Failed to change password" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function suggestPassword() {
+    const chars = "abcdefghjkmnpqrstuvwxyz23456789";
+    let r = "";
+    for (let i = 0; i < 8; i++) r += chars[Math.floor(Math.random() * chars.length)];
+    const pwd = "pass@" + r;
+    setNewPassword(pwd);
+    setConfirmPassword(pwd);
+    setShowNew(true);
+  }
+
+  return h("div", { className:"rounded-xl border p-6 "+T.card },
+    h("div", { className:"font-black text-[15px] mb-1 uppercase tracking-wide flex items-center gap-2" }, "🔑 CHANGE PASSWORD"),
+    h("div", { className:"text-[12px] font-semibold opacity-70 mb-4" }, "Apna login password change karne ke liye current password daalein."),
+    h("div", { className:"space-y-3" },
+      h("div", null,
+        h("label", { className:"text-[11px] font-black uppercase tracking-wide opacity-70 block mb-1.5" }, "Current Password"),
+        h("div", { className:"relative" },
+          h("input", {
+            type: showCurrent ? "text" : "password",
+            tabIndex: -1,
+            value: currentPassword,
+            onChange: e => { setCurrentPassword(e.target.value); setMsg(null); },
+            placeholder: "Enter current password",
+            className: "w-full h-12 rounded-lg border px-4 pr-12 text-[14px] font-bold "+T.input
+          }),
+          h("button", { tabIndex: -1, type:"button", onClick: () => setShowCurrent(!showCurrent),
+            className:"absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded flex items-center justify-center text-[16px] hover:bg-slate-100" },
+            showCurrent ? "🙈" : "👁️")
+        )
+      ),
+      h("div", null,
+        h("label", { className:"text-[11px] font-black uppercase tracking-wide opacity-70 block mb-1.5" }, "New Password (min 6 chars)"),
+        h("div", { className:"relative" },
+          h("input", {
+            type: showNew ? "text" : "password",
+            tabIndex: -1,
+            value: newPassword,
+            onChange: e => { setNewPassword(e.target.value); setMsg(null); },
+            placeholder: "Enter new password",
+            className: "w-full h-12 rounded-lg border px-4 pr-24 text-[14px] font-bold "+T.input
+          }),
+          h("button", { tabIndex: -1, type:"button", onClick: () => setShowNew(!showNew),
+            className:"absolute right-10 top-1/2 -translate-y-1/2 w-8 h-8 rounded flex items-center justify-center text-[16px] hover:bg-slate-100" },
+            showNew ? "🙈" : "👁️"),
+          h("button", { tabIndex: -1, type:"button", onClick: suggestPassword,
+            className:"absolute right-1 top-1/2 -translate-y-1/2 h-8 px-2 rounded bg-cyan-100 text-cyan-700 text-[10px] font-black hover:bg-cyan-200" },
+            "🎲")
+        )
+      ),
+      h("div", null,
+        h("label", { className:"text-[11px] font-black uppercase tracking-wide opacity-70 block mb-1.5" }, "Confirm New Password"),
+        h("input", {
+          type: showNew ? "text" : "password",
+          tabIndex: -1,
+          value: confirmPassword,
+          onChange: e => { setConfirmPassword(e.target.value); setMsg(null); },
+          placeholder: "Re-enter new password",
+          className: "w-full h-12 rounded-lg border px-4 text-[14px] font-bold "+T.input
+        })
+      ),
+      msg && h("div", { className:"p-3 rounded-lg text-[12px] font-bold " +
+        (msg.type === "ok" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700") },
+        msg.text),
+      h("button", { tabIndex: -1, onClick: changePassword, disabled: busy,
+        className:"w-full h-12 rounded-lg font-black text-[14px] "+(busy ? "opacity-50 cursor-not-allowed " : "")+T.addBtn },
+        busy ? "Changing..." : "🔒 Change Password")
+    )
+  );
+}
+
+function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile }) {
+  const [loaded, setLoaded] = useState(true);
   const [theme, setTheme] = useState((cloudState && cloudState.theme) || "ocean");
   const [tab, setTab] = useState("ledger");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -334,7 +439,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
 
   useEffect(() => { setTimeout(() => { skipSaveRef.current = false; }, 1200); }, []);
 
-  // CLOUD AUTO-SAVE
   useEffect(() => {
     if (!loaded || skipSaveRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -346,7 +450,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, loaded]);
 
-  // Local cache save
   useEffect(() => {
     if (!loaded) return;
     const handleUnload = () => {
@@ -677,7 +780,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
   ];
 
   const goToParty = () => { if (partyRef.current) partyRef.current.focus(); };
-  const goToCounter = () => { if (counterRef.current) counterRef.current.focus(); };
   const goToAmount = () => { if (amountRef.current) amountRef.current.focus(); };
   const goToRemark = () => { if (remarkRef.current) remarkRef.current.focus(); };
   const goToAdd = () => { if (addBtnRef.current) addBtnRef.current.focus(); };
@@ -726,6 +828,14 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
       ),
       h("button", { type:"button", tabIndex: -1, onClick: exportCSV, className:"h-9 px-3 rounded-lg text-[13px] border "+T.exportBtnAlt+" whitespace-nowrap" }, "📊 Excel"),
       h("button", { type:"button", tabIndex: -1, onClick: requestFinalClose, className:"h-9 px-4 rounded-lg text-[13px] font-bold "+T.closingBtn+" whitespace-nowrap" }, "FINAL", pin && h("span", { className:"ml-1.5 text-[10px]" }, "🔒")),
+      h("div", { className:"flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-100 border border-slate-200" },
+        h("div", { className:"w-6 h-6 rounded-full bg-cyan-600 text-white flex items-center justify-center text-[11px] font-black shrink-0" },
+          (profile?.full_name || profile?.username || "?").charAt(0).toUpperCase()),
+        h("div", { className:"flex flex-col min-w-0" },
+          h("span", { className:"text-[11px] font-black text-slate-800 truncate leading-tight max-w-[80px]" }, profile?.full_name || profile?.username || "User"),
+          h("span", { className:"text-[9px] font-bold text-slate-500 truncate leading-tight max-w-[80px]" }, "@" + (profile?.username || ""))
+        )
+      ),
       h("button", { type:"button", tabIndex: -1, onClick: onLogout, className:"h-9 px-3 rounded-lg text-[13px] font-bold border "+T.exportBtnAlt+" whitespace-nowrap" }, "Logout")
     )
   );
@@ -734,8 +844,16 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
     h("div", { className:"h-16 flex items-center justify-end px-3 border-b" },
       h("button", { tabIndex: -1, onClick:()=>setSidebarOpen(false), className:"w-8 h-8 rounded-lg border flex items-center justify-center "+T.exportBtnAlt }, "✕")
     ),
-    h("div", { className:"px-3 py-2 border-b text-center" },
-      h("div", { className:"text-[13px] font-black tracking-tight text-cyan-700 truncate" }, "ULTRA LEDGER")
+    h("div", { className:"px-3 py-2 border-b" },
+      h("div", { className:"text-[13px] font-black tracking-tight text-cyan-700 truncate text-center" }, "ULTRA LEDGER"),
+      h("div", { className:"mt-2 p-2 rounded-lg bg-cyan-50 border border-cyan-200 flex items-center gap-2" },
+        h("div", { className:"w-8 h-8 rounded-full bg-cyan-600 text-white flex items-center justify-center text-[13px] font-black shrink-0" },
+          (profile?.full_name || profile?.username || "?").charAt(0).toUpperCase()),
+        h("div", { className:"min-w-0 flex-1" },
+          h("div", { className:"text-[12px] font-black text-slate-800 truncate" }, profile?.full_name || profile?.username || "User"),
+          h("div", { className:"text-[10px] font-bold text-slate-500 truncate" }, "@" + (profile?.username || ""))
+        )
+      )
     ),
     h("div", { className:"p-3 flex flex-col gap-2 overflow-y-auto flex-1" }, navBtns),
     h("div", { className:"p-3 border-t text-[10px] font-bold opacity-70 "+(theme==="midnight"?"border-zinc-800":"border-gray-200") },
@@ -1040,6 +1158,26 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
 
   const profilePage = h("div", { className:"p-4 max-w-5xl mx-auto w-full flex flex-col gap-4" },
     h("div", { className:"rounded-xl border p-6 "+T.card },
+      h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide" }, "👤 MY ACCOUNT"),
+      h("div", { className:"flex items-center gap-4 mb-4" },
+        h("div", { className:"w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white flex items-center justify-center text-[24px] font-black" },
+          (profile?.full_name || profile?.username || "?").charAt(0).toUpperCase()),
+        h("div", null,
+          h("div", { className:"text-[18px] font-black text-slate-800" }, profile?.full_name || profile?.username || "User"),
+          h("div", { className:"text-[12px] font-bold text-slate-500 font-mono" }, "@" + (profile?.username || ""))
+        )
+      ),
+      h("div", { className:"grid grid-cols-2 gap-3 mt-4" },
+        h("div", { className:"p-3 rounded-lg bg-slate-50 border border-slate-200" },
+          h("div", { className:"text-[10px] font-black text-slate-500 uppercase" }, "Role"),
+          h("div", { className:"text-[13px] font-black text-slate-800 mt-0.5" }, profile?.role === "admin" ? "Admin" : "User")),
+        h("div", { className:"p-3 rounded-lg bg-slate-50 border border-slate-200" },
+          h("div", { className:"text-[10px] font-black text-slate-500 uppercase" }, "User ID"),
+          h("div", { className:"text-[11px] font-bold text-slate-800 font-mono mt-0.5 truncate" }, (profile?.id || "").slice(0, 12) + "..."))
+      )
+    ),
+    h(ChangePasswordCard, { T: T }),
+    h("div", { className:"rounded-xl border p-6 "+T.card },
       h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide flex items-center gap-2" }, "🏢 COMPANY NAME", pin && h("span", { className:"text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300" }, "🔒 PIN Protected")),
       h("div", { className:"text-[12px] font-semibold opacity-70 mb-3" }, "Ye naam Ledger page ke header me CENTER me dikhega. Khali chhodo to kuch nahi dikhega."),
       h("div", { className:"flex gap-3 items-center flex-wrap" },
@@ -1102,10 +1240,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
   );
 
   const pages = { ledger:ledgerPage, party:partyPage, final:finalPage, trial:trialPage, profile:profilePage };
-
   const modal = (children, onClose) => h("div", { className:"fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick:onClose },
-    h("div", { className:"w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick:e=>e.stopPropagation() }, children)
-  );
+    h("div", { className:"w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick:e=>e.stopPropagation() }, children));
 
   return h("div", { className:"min-h-screen flex flex-col "+T.pageBg+" "+T.text },
     backupBanner,
@@ -1280,6 +1416,7 @@ function MainApp() {
   const [bootMsg, setBootMsg] = useState("Connecting...");
   const [saveStatus, setSaveStatus] = useState("idle");
   const [companyId, setCompanyId] = useState(null);
+  const [profile, setProfile] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -1288,7 +1425,7 @@ function MainApp() {
       else setReady(true);
     })();
     const { data: sub } = sb.auth.onAuthStateChange((event, sess) => {
-      if (event === "SIGNED_OUT") { setSession(null); setCloudState(null); setCompanyId(null); }
+      if (event === "SIGNED_OUT") { setSession(null); setCloudState(null); setCompanyId(null); setProfile(null); }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -1299,6 +1436,7 @@ function MainApp() {
       const { data: prof } = await sb.from("profiles").select("*").eq("id", sess.user.id).single();
       if (!prof || !prof.company_id) { await sb.auth.signOut(); setReady(true); return; }
       setCompanyId(prof.company_id);
+      setProfile(prof);
       setSession(sess);
       setBootMsg("Loading ledger...");
       const { data: st } = await sb.from("company_state").select("state").eq("company_id", prof.company_id).single();
@@ -1333,7 +1471,7 @@ function MainApp() {
       h("div", { className:"text-[15px] font-black text-slate-700" }, bootMsg)));
 
   if (!session) return h(LoginScreen, { onLogin: loadAll });
-  return h(OriginalApp, { onLogout: () => sb.auth.signOut(), cloudState, saveCloud, cloudSaveStatus: saveStatus });
+  return h(OriginalApp, { onLogout: () => sb.auth.signOut(), cloudState, saveCloud, cloudSaveStatus: saveStatus, profile: profile });
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(h(MainApp));
