@@ -96,10 +96,7 @@ if (typeof document !== "undefined") {
 }
 
 const THEMES = {
-  original: { label:"Original", dot1:"#000", dot2:"#fff", pageBg:"bg-[#fafafa]", header:"bg-white border-gray-200", sidebarBg:"bg-white", sidebarActive:"bg-black text-white border-black", sidebarInactive:"bg-white text-[#444] border-gray-200 hover:bg-gray-50", addBtn:"bg-black text-white", closingBtn:"bg-[#7ec8f0] text-black", exportBtn:"bg-black text-white", exportBtnAlt:"bg-white text-black border border-gray-200", card:"bg-white border-gray-200 shadow-sm", text:"text-gray-900", input:"bg-white border-gray-200 text-black", tableHeader:"bg-[#f3f3f3]", modBtn:"bg-[#fff8c4] text-[#8a6d00] border border-[#f5e7a0]", delBtn:"bg-[#ffe5e5] text-[#b91c1c] border border-[#ffcfcf]", logoBg:"bg-black text-white" },
   ocean: { label:"Ocean", dot1:"#0f172a", dot2:"#06b6d4", pageBg:"bg-[#f8fafc]", header:"bg-white border-slate-200", sidebarBg:"bg-white", sidebarActive:"bg-cyan-600 text-white border-cyan-600", sidebarInactive:"bg-white text-slate-600 border-slate-200 hover:bg-slate-50", addBtn:"bg-cyan-600 text-white hover:bg-cyan-700", closingBtn:"bg-cyan-500 text-white", exportBtn:"bg-slate-900 text-white", exportBtnAlt:"bg-white text-slate-700 border border-slate-200", card:"bg-white border-slate-200 shadow-sm", text:"text-slate-900", input:"bg-white border-slate-200 text-slate-900", tableHeader:"bg-slate-100", modBtn:"bg-yellow-50 text-yellow-700 border border-cyan-200", delBtn:"bg-red-50 text-red-600 border border-red-200", logoBg:"bg-slate-900 text-white" },
-  forest: { label:"Forest", dot1:"#14532d", dot2:"#84cc16", pageBg:"bg-[#f6faf6]", header:"bg-white border-green-100", sidebarBg:"bg-white", sidebarActive:"bg-[#14532d] text-white border-[#14532d]", sidebarInactive:"bg-white text-green-800 border-green-100 hover:bg-green-50", addBtn:"bg-[#14532d] text-white", closingBtn:"bg-lime-500 text-[#14532d] font-bold", exportBtn:"bg-[#14532d] text-white", exportBtnAlt:"bg-white text-green-800 border border-green-200", card:"bg-white border-green-100 shadow-sm", text:"text-green-950", input:"bg-white border-green-200 text-green-900", tableHeader:"bg-green-50", modBtn:"bg-yellow-50 text-yellow-800 border border-green-200", delBtn:"bg-red-50 text-red-700 border border-red-200", logoBg:"bg-[#14532d] text-white" },
-  sunset: { label:"Sunset", dot1:"#1c1917", dot2:"#f97316", pageBg:"bg-[#fffaf5]", header:"bg-white border-orange-100", sidebarBg:"bg-white", sidebarActive:"bg-orange-500 text-white border-orange-500", sidebarInactive:"bg-white text-stone-600 border-orange-100 hover:bg-orange-50", addBtn:"bg-orange-500 text-white", closingBtn:"bg-amber-500 text-white", exportBtn:"bg-stone-900 text-white", exportBtnAlt:"bg-white text-stone-700 border border-orange-200", card:"bg-white border-orange-100 shadow-sm", text:"text-stone-900", input:"bg-white border-orange-200 text-stone-900", tableHeader:"bg-orange-50", modBtn:"bg-amber-50 text-amber-800 border border-orange-200", delBtn:"bg-red-50 text-red-700 border border-red-200", logoBg:"bg-stone-900 text-white" },
   midnight: { label:"Midnight Dark", dot1:"#000", dot2:"#fff", pageBg:"bg-black", header:"bg-black border-zinc-800", sidebarBg:"bg-black", sidebarActive:"bg-zinc-800 text-white border-zinc-700", sidebarInactive:"bg-[#111] text-zinc-400 border-zinc-800 hover:bg-zinc-900 hover:text-white", addBtn:"bg-white text-black font-semibold", closingBtn:"bg-zinc-800 text-white border border-zinc-700", exportBtn:"bg-white text-black", exportBtnAlt:"bg-[#111] text-zinc-300 border border-zinc-800", card:"bg-[#111] border-zinc-800", text:"text-white", input:"bg-zinc-900 border-zinc-800 text-white", tableHeader:"bg-zinc-900", modBtn:"bg-zinc-800 text-yellow-200 border border-zinc-700", delBtn:"bg-zinc-900 text-red-300 border border-zinc-800", logoBg:"bg-white text-black" }
 };
 
@@ -279,7 +276,7 @@ function ChangePasswordCard({ T }) {
     setBusy(true);
     try {
       const { data: { user } } = await sb.auth.getUser();
-      if (!user || !user.email) throw new Error("Session expired.");
+      if (!user || !user.email) throw new Error("Session expired. Please logout and login again.");
 
       const { error: verifyErr } = await sb.auth.signInWithPassword({
         email: user.email,
@@ -371,7 +368,6 @@ function ChangePasswordCard({ T }) {
 }
 
 function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile, companyId }) {
-  const [loaded, setLoaded] = useState(true);
   const [theme, setTheme] = useState((cloudState && cloudState.theme) || "ocean");
   const [tab, setTab] = useState("ledger");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -438,18 +434,16 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   useEffect(() => { setTimeout(() => { skipSaveRef.current = false; }, 1500); }, []);
 
-  // ═══════════════ INSTANT SAVE TO LOCALSTORAGE (no delay!) ═══════════════
+  // INSTANT SAVE TO localStorage
   useEffect(() => {
-    if (!loaded || skipSaveRef.current) return;
+    if (skipSaveRef.current) return;
     const snap = { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
-    try {
-      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
-    } catch(e) {}
-  }, [parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, loaded, companyId]);
+    try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
+  }, [parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, companyId]);
 
   // Cloud save (debounced)
   useEffect(() => {
-    if (!loaded || skipSaveRef.current) return;
+    if (skipSaveRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       if (saveCloud) {
@@ -457,19 +451,17 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       }
     }, 500);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, loaded]);
+  }, [parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter]);
 
   useEffect(() => {
-    if (!loaded) return;
     const handleUnload = () => {
-      if (skipSaveRef.current) return;
       const snap = Object.assign({}, stateSnapRef.current);
       try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
       try { idbSave("state", snap); } catch(e) {}
     };
     window.addEventListener("beforeunload", handleUnload);
     return () => window.removeEventListener("beforeunload", handleUnload);
-  }, [loaded, companyId]);
+  }, [companyId]);
 
   useEffect(() => { const iv = setInterval(() => setBackupCheckTick(t => t + 1), 60000); return () => clearInterval(iv); }, []);
   const hoursSinceBackup = lastBackupTime ? (Date.now() - lastBackupTime) / (1000 * 60 * 60) : 9999;
@@ -477,7 +469,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   useEffect(() => { if(toast){ const t=setTimeout(()=>setToast(null),2500); return ()=>clearTimeout(t); } }, [toast]);
   useEffect(() => { if (tableEndRef.current) tableEndRef.current.scrollIntoView({ behavior:"smooth", block:"end" }); }, [ledgers.length, selectedParty, tab]);
-  useEffect(() => { if (!loaded || tab !== "ledger") return; const t = setTimeout(() => { if (counterRef.current) counterRef.current.focus(); }, 350); return () => clearTimeout(t); }, [loaded, tab, selectedParty]);
+  useEffect(() => { if (tab !== "ledger") return; const t = setTimeout(() => { if (counterRef.current) counterRef.current.focus(); }, 350); return () => clearTimeout(t); }, [tab, selectedParty]);
 
   const T = THEMES[theme] || THEMES.ocean;
   const selectedPartyObj = parties.find(p => p.id === selectedParty);
@@ -567,6 +559,19 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const showToast = (msg) => setToast(msg);
 
+  const safeLogout = async () => {
+    try {
+      const snap = { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
+      try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
+      if (saveCloud) { await saveCloud(snap); }
+      try { await idbSave("cache_" + (companyId || "default"), snap); } catch(e) {}
+      await onLogout();
+    } catch (e) {
+      console.error("Logout save error:", e);
+      await onLogout();
+    }
+  };
+
   const requirePin = (runFn, label) => {
     if (!pin) return runFn();
     setPinPrompt({ run: runFn, label: label || "Confirmation" });
@@ -591,8 +596,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     return nums;
   };
 
-  const getUserTag = () => "(" + (profile?.full_name || profile?.username || "user") + ")";
-
   const handleAdd = () => {
     const nums = parseAmounts(amount);
     if(!nums.length) return showToast("Enter amount");
@@ -601,22 +604,14 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const cpObj = parties.find(p => p.id === counter);
     if (cpObj && cpObj.status !== "Active") return showToast(counter+" is DEACTIVE – cannot add entries");
     const date = todayISO(), time = nowTime(), now = Date.now(), newEntries = [];
-    const userTag = getUserTag();
-    const cleanRemark = remark.trim();
-    const finalRemark = cleanRemark.endsWith(userTag) ? cleanRemark : (cleanRemark ? (cleanRemark + " " + userTag) : userTag);
+    const finalRemark = remark.trim();
     nums.forEach((n, i) => {
       const pairId = "pair_"+now+"_"+i;
       newEntries.push({ id:"e_"+now+"_"+i+"_1", pairId:pairId, date:date, time:time, partyId:selectedParty, counterPartyId:counter, amount:n, remark:finalRemark, createdAt:now+i*2 });
       newEntries.push({ id:"e_"+now+"_"+i+"_2", pairId:pairId, date:date, time:time, partyId:counter, counterPartyId:selectedParty, amount:-n, remark:finalRemark, createdAt:now+i*2+1 });
     });
-    const newLedgers = ledgers.concat(newEntries);
-    setLedgers(newLedgers);
+    setLedgers(prev => prev.concat(newEntries));
     setAmount(""); setRemark("");
-    // INSTANT SAVE to localStorage
-    try {
-      const snap = { parties, ledgers: newLedgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
-      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
-    } catch(e) {}
     const total = nums.reduce((a,b)=>a+b,0);
     showToast("Added "+nums.map(fmtINR).join(" / ")+" • Total "+fmtINR(total));
     setTimeout(()=>{ if(counterRef.current) counterRef.current.focus(); }, 50);
@@ -631,22 +626,15 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const saveModify = () => {
     const amt = parseFloat(editForm.amount);
     if(isNaN(amt) || amt===0) return showToast("Invalid amount");
-    const userTag = getUserTag();
-    const cleanRemark = (editForm.remark || "").trim();
-    const finalRemark = cleanRemark.endsWith(userTag) ? cleanRemark : (cleanRemark ? (cleanRemark + " " + userTag) : userTag);
-    const newLedgers = ledgers.map(e => {
+    const finalRemark = (editForm.remark || "").trim();
+    setLedgers(prev => prev.map(e => {
       if(e.pairId !== editEntry.pairId) return e;
       if(isLocked(e)) return e;
       if(e.partyId === editEntry.partyId) return Object.assign({}, e, { date:editForm.date, counterPartyId:editForm.counter, amount:amt, remark:finalRemark });
       else return Object.assign({}, e, { date:editForm.date, partyId:editForm.counter, counterPartyId:editEntry.partyId, amount:-amt, remark:finalRemark });
-    });
-    setLedgers(newLedgers);
-    try {
-      const snap = { parties, ledgers: newLedgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
-      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
-    } catch(e) {}
+    }));
     setEditEntry(null);
-    showToast("Modified");
+    showToast("Modified – both sides synced");
   };
 
   const handleDelete = (entry) => {
@@ -656,16 +644,11 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const confirmDelete = () => {
     const pairId = deleteEntry.pairId, id = deleteEntry.id;
-    const newLedgers = ledgers.filter(e => {
+    setLedgers(prev => prev.filter(e => {
       if(isLocked(e)) return true;
       if(e.pairId && pairId) return e.pairId !== pairId;
       return e.id !== id;
-    });
-    setLedgers(newLedgers);
-    try {
-      const snap = { parties, ledgers: newLedgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
-      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
-    } catch(e) {}
+    }));
     showToast("Deleted");
     setDeleteEntry(null);
   };
@@ -675,15 +658,9 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const balance = entries.reduce((a,e)=>a+e.amount,0);
     const now = Date.now();
     const counterEntries = ledgers.filter(l => l.counterPartyId === selectedParty && !l.openingLocked && (l.remark||"").toLowerCase() !== "opening" && !l.finalLocked);
-    const newFinals = finals.concat([{ id:"final_"+now, partyId:selectedParty, closedAt:todayISO(), entries:entries, counterEntries:counterEntries, balance:balance, createdAt:now }]);
+    setFinals(prev => prev.concat([{ id:"final_"+now, partyId:selectedParty, closedAt:todayISO(), entries:entries, counterEntries:counterEntries, balance:balance, createdAt:now }]));
     const counterPairIds = new Set(counterEntries.map(e => e.pairId));
-    const newLedgers = ledgers.filter(l => l.partyId !== selectedParty).map(l => { if (counterPairIds.has(l.pairId)) return Object.assign({}, l, { finalLocked: true }); return l; }).concat([{ id:"open_"+now, pairId:"opening_"+now, date:todayISO(), time:nowTime(), partyId:selectedParty, counterPartyId:"", amount:balance, remark:"Opening", createdAt:now+5, openingLocked:true, carryForward:true }]);
-    setFinals(newFinals);
-    setLedgers(newLedgers);
-    try {
-      const snap = { parties, ledgers: newLedgers, finals: newFinals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
-      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
-    } catch(e) {}
+    setLedgers(prev => prev.filter(l => l.partyId !== selectedParty).map(l => { if (counterPairIds.has(l.pairId)) return Object.assign({}, l, { finalLocked: true }); return l; }).concat([{ id:"open_"+now, pairId:"opening_"+now, date:todayISO(), time:nowTime(), partyId:selectedParty, counterPartyId:"", amount:balance, remark:"Opening", createdAt:now+5, openingLocked:true, carryForward:true }]));
     setConfirmFinal(false);
     showToast(selectedParty+" Finalized → Opening "+fmtINR(balance));
   };
@@ -699,14 +676,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const confirmAddParty = () => {
     const name = partyConfirm.name;
-    const newParties = parties.concat([{ id:name, name:name, status:"Active" }]);
-    const newHistory = [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:"Created", partyId:name, oldVal:"-", newVal:name, remark:name+" Created" }].concat(history);
-    setParties(newParties);
-    setHistory(newHistory);
-    try {
-      const snap = { parties: newParties, ledgers, finals, pin, theme, sidebarOpen, companyName, history: newHistory, lastBackupTime, selectedParty, counter };
-      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
-    } catch(e) {}
+    setParties(prev => prev.concat([{ id:name, name:name, status:"Active" }]));
+    setHistory(prev => [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:"Created", partyId:name, oldVal:"-", newVal:name, remark:name+" Created" }].concat(prev));
     setNewPartyName(""); setPartyConfirm(null);
     showToast("Party "+name+" created");
   };
@@ -714,14 +685,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const requestToggleActive = (party) => { requirePin(() => setToggleConfirm({ party:party, next: party.status==="Active" ? "Deactive" : "Active" }), (party.status==="Active"?"Deactivate ":"Activate ")+party.id); };
   const confirmToggle = () => {
     const p = toggleConfirm.party, next = toggleConfirm.next;
-    const newParties = parties.map(x => x.id===p.id ? Object.assign({},x,{status:next}) : x);
-    const newHistory = [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:next==="Active"?"Activate":"Deactivate", partyId:p.id, oldVal:p.status, newVal:next, remark:next }].concat(history);
-    setParties(newParties);
-    setHistory(newHistory);
-    try {
-      const snap = { parties: newParties, ledgers, finals, pin, theme, sidebarOpen, companyName, history: newHistory, lastBackupTime, selectedParty, counter };
-      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
-    } catch(e) {}
+    setParties(prev => prev.map(x => x.id===p.id ? Object.assign({},x,{status:next}) : x));
+    setHistory(prev => [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:next==="Active"?"Activate":"Deactivate", partyId:p.id, oldVal:p.status, newVal:next, remark:next }].concat(prev));
     setToggleConfirm(null);
     showToast(p.id+" "+next);
   };
@@ -732,18 +697,14 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const name = editPartyName.trim().toUpperCase();
     if(!name || name === editParty.id) { setEditParty(null); return; }
     if(parties.some(p=>p.id===name)) return showToast("Exists");
-    const newParties = parties.map(p => p.id===editParty.id ? Object.assign({},p,{id:name,name:name}) : p);
-    const newLedgers = ledgers.map(l => { let pid = l.partyId, cid = l.counterPartyId; if(pid===editParty.id) pid=name; if(cid===editParty.id) cid=name; return Object.assign({},l,{partyId:pid,counterPartyId:cid}); });
-    const newFinals = finals.map(g => g.partyId === editParty.id ? Object.assign({},g,{partyId:name}) : g);
-    setParties(newParties); setLedgers(newLedgers); setFinals(newFinals);
+    setParties(prev => prev.map(p => p.id===editParty.id ? Object.assign({},p,{id:name,name:name}) : p));
+    setLedgers(prev => prev.map(l => { let pid = l.partyId, cid = l.counterPartyId; if(pid===editParty.id) pid=name; if(cid===editParty.id) cid=name; return Object.assign({},l,{partyId:pid,counterPartyId:cid}); }));
+    setFinals(prev => prev.map(g => g.partyId === editParty.id ? Object.assign({},g,{partyId:name}) : g));
     if(selectedParty===editParty.id) setSelectedParty(name);
     if(counter===editParty.id) setCounter(name);
-    try {
-      const snap = { parties: newParties, ledgers: newLedgers, finals: newFinals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
-      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
-    } catch(e) {}
+    setHistory(prev => [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:"Modify", partyId:name, oldVal:editParty.id, newVal:name, remark:"Renamed "+editParty.id+" → "+name }].concat(prev));
     setEditParty(null);
-    showToast("Renamed");
+    showToast("Renamed "+editParty.id+" → "+name);
   };
 
   const downloadBlob = (blob, name) => {
@@ -883,7 +844,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       ),
       h("button", { type:"button", tabIndex: -1, onClick: exportCSV, className:"h-9 px-3 rounded-lg text-[13px] border "+T.exportBtnAlt+" whitespace-nowrap" }, "📊 Excel"),
       h("button", { type:"button", tabIndex: -1, onClick: requestFinalClose, className:"h-9 px-4 rounded-lg text-[13px] font-bold "+T.closingBtn+" whitespace-nowrap" }, "FINAL", pin && h("span", { className:"ml-1.5 text-[10px]" }, "🔒")),
-      h("button", { type:"button", tabIndex: -1, onClick: onLogout, className:"h-9 px-3 rounded-lg text-[13px] font-bold border "+T.exportBtnAlt+" whitespace-nowrap" }, "Logout")
+      h("button", { type:"button", tabIndex: -1, onClick: safeLogout, className:"h-9 px-3 rounded-lg text-[13px] font-bold border "+T.exportBtnAlt+" whitespace-nowrap" }, "Logout")
     )
   );
 
@@ -1261,4 +1222,287 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         ),
         pinProfileMsg && h("div", { className:"text-[12px] font-bold text-red-600" }, pinProfileMsg)
       ) : h("div", { className:"flex flex-col gap-3" },
-        h("div", { className:"text-[12
+        h("div", { className:"text-[12px] font-semibold text-green-700" }, "✅ PIN is SET"),
+        h("div", { className:"flex gap-3 items-center flex-wrap" },
+          h("span", { className:"px-4 py-2 rounded-lg border bg-green-50 text-green-800 text-[13px] font-black tracking-widest" }, "PIN: "+"●".repeat(pin.length)),
+          h("button", { tabIndex: -1, onClick: handleRemovePin, className:"h-10 px-4 rounded-lg bg-red-100 text-red-700 border border-red-300 text-[12px] font-black" }, "🗑️ Remove PIN 🔒")
+        )
+      )
+    ),
+    h("div", { className:"rounded-xl border p-6 "+T.card },
+      h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide" }, "💾 BACKUP & RESTORE", pin && h("span", { className:"ml-2 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300" }, "🔒 PIN Protected")),
+      h("div", { className:"flex gap-3 flex-wrap" },
+        h("button", { tabIndex: -1, onClick: handleBackup, className:"h-12 px-6 rounded-lg text-[13px] font-black border "+T.exportBtnAlt }, "⬇️ Backup JSON", pin && h("span", { className:"ml-1.5 text-[11px]" }, "🔒")),
+        h("button", { tabIndex: -1, onClick: triggerRestore, className:"h-12 px-6 rounded-lg text-[13px] font-black border "+T.exportBtnAlt }, "⬆️ Restore", pin && h("span", { className:"ml-1.5 text-[11px]" }, "🔒")),
+        h("input", { ref: fileInputRef, type:"file", accept:".json", onChange: handleRestoreFile, className:"hidden" })
+      )
+    )
+  );
+
+  const pages = { ledger:ledgerPage, party:partyPage, final:finalPage, trial:trialPage, profile:profilePage };
+  const modal = (children, onClose) => h("div", { className:"fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick:onClose },
+    h("div", { className:"w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick:e=>e.stopPropagation() }, children));
+
+  return h("div", { className:"min-h-screen flex flex-col "+T.pageBg+" "+T.text },
+    backupBanner,
+    header,
+    h("div", { className:"flex flex-1 relative" },
+      sidebarOpen && h("div", { className:"fixed inset-0 bg-black/40 z-40 lg:hidden", onClick:()=>setSidebarOpen(false) }),
+      sidebar,
+      h("main", { className:"flex-1 min-w-0 flex flex-col overflow-auto "+(sidebarOpen?"lg:ml-[280px]":"ml-0") }, pages[tab])
+    ),
+
+    editEntry && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "Modify Transaction"),
+      h("div", { key:"b", className:"space-y-3" },
+        h("div", null, h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Date"), h("input", { type:"date", value:editForm.date, onChange:e=>setEditForm(Object.assign({},editForm,{date:e.target.value})), className:"w-full h-10 rounded-lg border px-3 text-[13px] font-bold "+T.input })),
+        h("div", null, h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Counter"), h(SearchableSelect, { value: editForm.counter, options: parties.filter(p=>p.id!==editEntry.partyId), onChange: (val) => setEditForm(Object.assign({},editForm,{counter:val})), T: T, className: "text-[13px] font-bold", triggerTabIndex: -1 })),
+        h("div", null, h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Amount"), h("input", { value:editForm.amount, onChange:e=>setEditForm(Object.assign({},editForm,{amount:e.target.value})), className:"w-full h-10 rounded-lg border px-3 text-[15px] font-black "+T.input })),
+        h("div", null, h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Remark"), h("input", { value:editForm.remark, onChange:e=>setEditForm(Object.assign({},editForm,{remark:e.target.value})), className:"w-full h-10 rounded-lg border px-3 text-[13px] font-semibold "+T.input })),
+        h("div", { className:"flex gap-2 pt-2" },
+          h("button", { onClick:()=>setEditEntry(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+          h("button", { onClick:saveModify, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+T.addBtn }, "Save")
+        )
+      )
+    ], ()=>setEditEntry(null)),
+
+    deleteEntry && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "Delete Entry?"),
+      h("p", { key:"p", className:"text-[13px] font-semibold mb-4" }, "Delete from both "+deleteEntry.partyId+" and "+(deleteEntry.counterPartyId||"-")+"?"),
+      h("div", { key:"b", className:"flex gap-2" },
+        h("button", { onClick:()=>setDeleteEntry(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick:confirmDelete, className:"flex-1 h-11 rounded-lg bg-red-600 text-white font-black text-[13px]" }, "Delete Both")
+      )
+    ], ()=>setDeleteEntry(null)),
+
+    confirmFinal && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "FINAL Closing – "+selectedParty+"?"),
+      h("p", { key:"p", className:"text-[13px] font-semibold mb-4" }, "Move entries (Balance "+fmtINR(balMap.total)+") to Final Report."),
+      h("div", { key:"b", className:"flex gap-2" },
+        h("button", { onClick:()=>setConfirmFinal(false), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick:doFinalClose, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+T.closingBtn }, "Confirm FINAL")
+      )
+    ], ()=>setConfirmFinal(false)),
+
+    lockedInfo && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "🔒 Entry Locked"),
+      h("p", { key:"p", className:"text-[13px] font-semibold mb-4" }, lockedInfo.reason),
+      h("button", { key:"b", onClick:()=>setLockedInfo(null), className:"w-full h-11 rounded-lg bg-black text-white font-black text-[13px]" }, "OK")
+    ], ()=>setLockedInfo(null)),
+
+    partyConfirm && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, 'Create Party "'+partyConfirm.name+'" ?'),
+      h("div", { key:"b", className:"flex gap-2" },
+        h("button", { onClick:()=>setPartyConfirm(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick:confirmAddParty, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+T.addBtn }, "Yes, Create")
+      )
+    ], ()=>setPartyConfirm(null)),
+
+    toggleConfirm && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, toggleConfirm.next+" "+toggleConfirm.party.id+" ?"),
+      h("p", { key:"p", className:"text-[13px] font-semibold mb-4" }, "Balance "+fmtINR(allPartyBalances[toggleConfirm.party.id]||0)),
+      h("div", { key:"b", className:"flex gap-2" },
+        h("button", { onClick:()=>setToggleConfirm(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "No"),
+        h("button", { onClick:confirmToggle, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+(toggleConfirm.next==="Deactive"?"bg-red-600 text-white":T.addBtn) }, "Yes – "+toggleConfirm.next)
+      )
+    ], ()=>setToggleConfirm(null)),
+
+    editParty && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "Modify Party – "+editParty.id),
+      h("input", { key:"i", value:editPartyName, onChange:e=>setEditPartyName(e.target.value.toUpperCase()), className:"w-full h-11 rounded-lg border px-3 text-[15px] font-black "+T.input }),
+      h("div", { key:"b", className:"flex gap-2 mt-3" },
+        h("button", { onClick:()=>setEditParty(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick:savePartyEdit, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+T.addBtn }, "Save")
+      )
+    ], ()=>setEditParty(null)),
+
+    historyOpen && h("div", { className:"fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-2 md:p-4", onClick:()=>setHistoryOpen(false) },
+      h("div", { className:"w-full max-w-5xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] "+T.card, onClick:e=>e.stopPropagation() },
+        h("div", { className:"bg-gray-900 text-white px-4 py-3 flex justify-between" },
+          h("div", { className:"font-black text-[14px] uppercase tracking-wide" }, "PARTY HISTORY"),
+          h("button", { onClick:()=>setHistoryOpen(false), className:"w-7 h-7 rounded bg-white/20 font-bold" }, "✕")
+        ),
+        h("div", { className:"px-3 py-2 border-b flex justify-between" },
+          h("select", { value:historyFilter, onChange:e=>setHistoryFilter(e.target.value), className:"h-8 rounded border px-2 text-[12px] font-bold "+T.input }, h("option", null, "All"), parties.map(p => h("option", { key:p.id }, p.id))),
+          h("button", { onClick:exportHistory, className:"h-8 px-3 rounded text-[12px] font-black "+T.exportBtn }, "Export")
+        ),
+        h("div", { className:"overflow-auto flex-1" },
+          h("table", { className:"w-full", style:{fontSize:"13px"} },
+            h("thead", { className:T.tableHeader }, h("tr", null, ["Date","Time","Action","Party","Old","New","Remark"].map(x => h("th", { key:x, className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, x)))),
+            h("tbody", null, (historyFilter==="All"?history:history.filter(x=>x.partyId===historyFilter||x.oldVal===historyFilter||x.newVal===historyFilter)).map(x => h("tr", { key:x.id, className:"border-t" },
+              h("td", { className:"py-1.5 px-2.5 font-mono text-[12px] font-bold" }, x.dateDisplay),
+              h("td", { className:"py-1.5 px-2.5 font-bold" }, x.timeDisplay),
+              h("td", { className:"py-1.5 px-2.5" }, h("span", { className:"px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black" }, x.action)),
+              h("td", { className:"py-1.5 px-2.5 font-black text-[13px]" }, x.partyId),
+              h("td", { className:"py-1.5 px-2.5 font-mono font-bold text-[12px]" }, x.oldVal),
+              h("td", { className:"py-1.5 px-2.5 font-mono font-bold text-[12px]" }, x.newVal),
+              h("td", { className:"py-1.5 px-2.5 font-semibold truncate max-w-[200px]" }, x.remark)
+            )))
+          )
+        )
+      )
+    ),
+
+    frOpen && h("div", { className:"fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-2 md:p-4", onClick:()=>setFrOpen(false) },
+      h("div", { className:"w-full max-w-[1100px] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] "+T.card, onClick:e=>e.stopPropagation() },
+        h("div", { className:"px-4 py-3 flex justify-between items-center shrink-0", style:{background:"linear-gradient(90deg,#0369a1,#0891b2)"} },
+          h("div", { className:"flex items-center gap-3 text-white" },
+            h("span", { className:"text-[20px]" }, "📄"),
+            h("div", null,
+              h("div", { className:"font-black text-[15px] tracking-wide" }, "FINAL REPORT – "+selectedParty),
+              h("div", { className:"text-[11px] opacity-90 font-bold" }, "Groups: "+frSummary.totalGroups+" • Rows: "+frSummary.totalRows+" • Closing: "+fmtINR(frSummary.closingBal))
+            )
+          ),
+          h("button", { onClick:()=>setFrOpen(false), className:"w-8 h-8 rounded-lg bg-white/20 text-white font-black text-[14px]" }, "✕")
+        ),
+        h("div", { className:"px-3 py-2 border-b flex justify-between items-center flex-wrap gap-2 shrink-0 "+T.card },
+          h("input", { value: frSearch, onChange: e => setFrSearch(e.target.value), placeholder: "Search...", className: "h-9 w-[280px] rounded-lg border px-3 text-[12.5px] "+T.input }),
+          h("div", { className:"flex gap-2 items-center" },
+            frSearch && h("button", { onClick:()=>setFrSearch(""), className:"h-9 px-3 rounded-lg border text-[12px] font-bold "+T.exportBtnAlt }, "✕"),
+            h("span", { className:"text-[11px] font-black opacity-60 px-2" }, frRows.length+" rows"),
+            h("button", { type:"button", onClick: exportFRExcel, className:"h-9 px-4 rounded-lg text-[13px] font-black bg-emerald-600 text-white hover:bg-emerald-700" }, "📊 Excel"),
+            h("button", { onClick:()=>setFrOpen(false), className:"h-9 px-4 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Close")
+          )
+        ),
+        h("div", { className:"overflow-auto flex-1" },
+          h("table", { className:"w-full", style:{fontSize:"13px"} },
+            h("thead", { className:"sticky top-0 z-[5] "+T.tableHeader },
+              h("tr", null, ["Date","Counter","Remark","Debit","Credit","Balance"].map(hd => h("th", { key:hd, className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, hd)))
+            ),
+            h("tbody", null,
+              frRows.length===0 && h("tr", null, h("td", { colSpan:6, className:"p-8 text-center opacity-60 font-bold" }, "No FINAL records for "+selectedParty)),
+              frRows.map(r => h("tr", { key:r.id, className:"border-t "+(r.isClosing?"bg-cyan-300 font-bold text-black":r.isOpeningEntry?"bg-amber-50":""), style:{height:"26px"} },
+                h("td", { className:"py-0.5 px-2.5 font-mono text-[12px] font-bold whitespace-nowrap" },
+                  h("span", null, dmy(r.date)),
+                  r.time && h("span", { className:"ml-2 text-[10px] opacity-60 font-bold" }, r.time.slice(0,5))
+                ),
+                h("td", { className:"py-0.5 px-2.5 font-bold" }, r.counterPartyId||"-"),
+                h("td", { className:"py-0.5 px-2.5 font-semibold" }, r.remark||"-"),
+                h("td", { className:"py-0.5 px-2 text-right font-mono font-bold" }, r._debit==="-"?h("span", { className:"opacity-30" }, "-"):absINR(r._debit)),
+                h("td", { className:"py-0.5 px-2 text-right font-mono font-bold" }, r._credit==="-"?h("span", { className:"opacity-30" }, "-"):fmtINR(r._credit)),
+                h("td", { className:"py-0.5 px-2 text-right font-mono font-black "+(r._bal<0?"text-red-600":"text-green-600") }, fmtINR(r._bal))
+              ))
+            )
+          )
+        )
+      )
+    ),
+
+    pinPrompt && h("div", { className:"fixed inset-0 z-[95] bg-black/70 flex items-center justify-center p-4", onClick:()=>setPinPrompt(null) },
+      h("div", { className:"w-full max-w-[400px] rounded-xl border bg-white shadow-2xl p-5 flex flex-col gap-3", onClick:e=>e.stopPropagation() },
+        h("div", { className:"flex items-start justify-between" },
+          h("div", { className:"w-10 h-10 rounded-full bg-amber-100 border border-amber-300 text-amber-700 flex items-center justify-center text-[18px]" }, "🔐"),
+          h("button", { onClick:()=>setPinPrompt(null), className:"w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 font-bold text-[14px]" }, "✕")
+        ),
+        h("div", { className:"font-black text-[15px] text-gray-900" }, "PIN Required"),
+        h("div", { className:"text-[12px] font-semibold text-gray-600" }, "Enter PIN to confirm: ", h("b", { className:"text-amber-800" }, pinPrompt.label)),
+        h("input", { type:"password", autoFocus:true, maxLength:6, value: pinPromptInput, onChange: e => { setPinPromptInput(e.target.value.replace(/[^0-9]/g, "")); setPinPromptErr(""); }, onKeyDown: e => { if (e.key === "Enter") { e.preventDefault(); confirmPinPrompt(); } else if (e.key === "Escape") { setPinPrompt(null); } }, placeholder:"Enter PIN", className:"w-full h-12 rounded-lg border-2 border-gray-300 px-4 text-[18px] font-black tracking-widest text-center outline-none focus:border-black" }),
+        pinPromptErr && h("div", { className:"text-[12px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center" }, pinPromptErr),
+        h("div", { className:"flex gap-2 pt-1" },
+          h("button", { onClick:()=>setPinPrompt(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold bg-white text-gray-700 border-gray-300" }, "Cancel"),
+          h("button", { onClick:confirmPinPrompt, className:"flex-1 h-11 rounded-lg bg-black text-white font-black text-[13px]" }, "Confirm")
+        )
+      )
+    ),
+
+    toast && h("div", { className:"fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-full bg-black text-white text-[14px] font-black shadow-2xl" }, "✓ "+toast)
+  );
+}
+
+function MainApp() {
+  const [session, setSession] = useState(null);
+  const [cloudState, setCloudState] = useState(null);
+  const [ready, setReady] = useState(false);
+  const [bootMsg, setBootMsg] = useState("Connecting...");
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const [companyId, setCompanyId] = useState(null);
+  const [profile, setProfile] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (session) await loadAll(session);
+        else setReady(true);
+      } catch (e) {
+        console.error("Init error:", e);
+        setReady(true);
+      }
+    })();
+    const { data: sub } = sb.auth.onAuthStateChange(async (event, sess) => {
+      if (event === "SIGNED_OUT") {
+        setSession(null); setCloudState(null); setCompanyId(null); setProfile(null); setReady(true);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  async function loadAll(sess) {
+    try {
+      setBootMsg("Loading profile...");
+      const { data: prof } = await sb.from("profiles").select("*").eq("id", sess.user.id).single();
+      if (!prof || !prof.company_id) { await sb.auth.signOut(); setReady(true); return; }
+      setCompanyId(prof.company_id);
+      setProfile(prof);
+      setSession(sess);
+      setBootMsg("Loading ledger...");
+
+      // Try cloud first
+      const { data: st } = await sb.from("company_state").select("state").eq("company_id", prof.company_id).single();
+      if (st && st.state) {
+        setCloudState(st.state);
+      } else {
+        // Try localStorage backup
+        let cached = null;
+        try {
+          const raw = localStorage.getItem("ul_state_" + prof.company_id);
+          if (raw) cached = JSON.parse(raw);
+        } catch(e) {}
+        if (!cached) {
+          cached = await idbLoad("cache_" + prof.company_id);
+        }
+        setCloudState(cached || { parties: SEED_PARTIES, ledgers: SEED_OPEN, finals: [], history: [], companyName: "", theme: "ocean", pin: "", lastBackupTime: 0 });
+      }
+      setReady(true);
+    } catch (e) {
+      console.error("Load error:", e);
+      setReady(true);
+    }
+  }
+
+  async function saveCloud(newState) {
+    if (!companyId || !session) return;
+    setSaveStatus("saving");
+    try {
+      await sb.from("company_state").upsert({
+        company_id: companyId,
+        state: newState,
+        updated_at: new Date().toISOString(),
+        updated_by: session.user.id
+      }, { onConflict: "company_id" });
+      setSaveStatus("saved");
+      try { await idbSave("cache_" + companyId, newState); } catch(e) {}
+      setTimeout(() => setSaveStatus("idle"), 1500);
+    } catch (e) { console.error("Save err:", e); setSaveStatus("idle"); }
+  }
+
+  if (!ready) return h("div", { className:"min-h-screen flex items-center justify-center bg-slate-50" },
+    h("div", { className:"text-center" },
+      h("div", { className:"text-[40px] mb-3" }, "📒"),
+      h("div", { className:"text-[15px] font-black text-slate-700" }, bootMsg)));
+
+  if (!session) return h(LoginScreen, { onLogin: loadAll });
+  return h(OriginalApp, {
+    onLogout: () => sb.auth.signOut(),
+    cloudState,
+    saveCloud,
+    cloudSaveStatus: saveStatus,
+    profile: profile,
+    companyId: companyId
+  });
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(h(MainApp));
+</script>
+</body>
+</html>
