@@ -582,6 +582,9 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     return nums;
   };
 
+  // ═══════════════ USER TAG HELPER ═══════════════
+  const getUserTag = () => "(" + (profile?.full_name || profile?.username || "user") + ")";
+
   const handleAdd = () => {
     const nums = parseAmounts(amount);
     if(!nums.length) return showToast("Enter amount");
@@ -590,10 +593,13 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const cpObj = parties.find(p => p.id === counter);
     if (cpObj && cpObj.status !== "Active") return showToast(counter+" is DEACTIVE – cannot add entries");
     const date = todayISO(), time = nowTime(), now = Date.now(), newEntries = [];
+    const userTag = getUserTag();
+    const cleanRemark = remark.trim();
+    const finalRemark = cleanRemark.endsWith(userTag) ? cleanRemark : (cleanRemark ? (cleanRemark + " " + userTag) : userTag);
     nums.forEach((n, i) => {
       const pairId = "pair_"+now+"_"+i;
-      newEntries.push({ id:"e_"+now+"_"+i+"_1", pairId:pairId, date:date, time:time, partyId:selectedParty, counterPartyId:counter, amount:n, remark:remark.trim(), createdAt:now+i*2 });
-      newEntries.push({ id:"e_"+now+"_"+i+"_2", pairId:pairId, date:date, time:time, partyId:counter, counterPartyId:selectedParty, amount:-n, remark:remark.trim(), createdAt:now+i*2+1 });
+      newEntries.push({ id:"e_"+now+"_"+i+"_1", pairId:pairId, date:date, time:time, partyId:selectedParty, counterPartyId:counter, amount:n, remark:finalRemark, createdAt:now+i*2 });
+      newEntries.push({ id:"e_"+now+"_"+i+"_2", pairId:pairId, date:date, time:time, partyId:counter, counterPartyId:selectedParty, amount:-n, remark:finalRemark, createdAt:now+i*2+1 });
     });
     setLedgers(prev => prev.concat(newEntries));
     setAmount(""); setRemark("");
@@ -611,11 +617,14 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const saveModify = () => {
     const amt = parseFloat(editForm.amount);
     if(isNaN(amt) || amt===0) return showToast("Invalid amount");
+    const userTag = getUserTag();
+    const cleanRemark = (editForm.remark || "").trim();
+    const finalRemark = cleanRemark.endsWith(userTag) ? cleanRemark : (cleanRemark ? (cleanRemark + " " + userTag) : userTag);
     setLedgers(prev => prev.map(e => {
       if(e.pairId !== editEntry.pairId) return e;
       if(isLocked(e)) return e;
-      if(e.partyId === editEntry.partyId) return Object.assign({}, e, { date:editForm.date, counterPartyId:editForm.counter, amount:amt, remark:editForm.remark });
-      else return Object.assign({}, e, { date:editForm.date, partyId:editForm.counter, counterPartyId:editEntry.partyId, amount:-amt, remark:editForm.remark });
+      if(e.partyId === editEntry.partyId) return Object.assign({}, e, { date:editForm.date, counterPartyId:editForm.counter, amount:amt, remark:finalRemark });
+      else return Object.assign({}, e, { date:editForm.date, partyId:editForm.counter, counterPartyId:editEntry.partyId, amount:-amt, remark:finalRemark });
     }));
     setEditEntry(null);
     showToast("Modified – both sides synced");
@@ -828,14 +837,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       ),
       h("button", { type:"button", tabIndex: -1, onClick: exportCSV, className:"h-9 px-3 rounded-lg text-[13px] border "+T.exportBtnAlt+" whitespace-nowrap" }, "📊 Excel"),
       h("button", { type:"button", tabIndex: -1, onClick: requestFinalClose, className:"h-9 px-4 rounded-lg text-[13px] font-bold "+T.closingBtn+" whitespace-nowrap" }, "FINAL", pin && h("span", { className:"ml-1.5 text-[10px]" }, "🔒")),
-      h("div", { className:"flex items-center gap-2 px-2 py-1 rounded-lg bg-slate-100 border border-slate-200" },
-        h("div", { className:"w-6 h-6 rounded-full bg-cyan-600 text-white flex items-center justify-center text-[11px] font-black shrink-0" },
-          (profile?.full_name || profile?.username || "?").charAt(0).toUpperCase()),
-        h("div", { className:"flex flex-col min-w-0" },
-          h("span", { className:"text-[11px] font-black text-slate-800 truncate leading-tight max-w-[80px]" }, profile?.full_name || profile?.username || "User"),
-          h("span", { className:"text-[9px] font-bold text-slate-500 truncate leading-tight max-w-[80px]" }, "@" + (profile?.username || ""))
-        )
-      ),
       h("button", { type:"button", tabIndex: -1, onClick: onLogout, className:"h-9 px-3 rounded-lg text-[13px] font-bold border "+T.exportBtnAlt+" whitespace-nowrap" }, "Logout")
     )
   );
@@ -844,16 +845,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     h("div", { className:"h-16 flex items-center justify-end px-3 border-b" },
       h("button", { tabIndex: -1, onClick:()=>setSidebarOpen(false), className:"w-8 h-8 rounded-lg border flex items-center justify-center "+T.exportBtnAlt }, "✕")
     ),
-    h("div", { className:"px-3 py-2 border-b" },
-      h("div", { className:"text-[13px] font-black tracking-tight text-cyan-700 truncate text-center" }, "ULTRA LEDGER"),
-      h("div", { className:"mt-2 p-2 rounded-lg bg-cyan-50 border border-cyan-200 flex items-center gap-2" },
-        h("div", { className:"w-8 h-8 rounded-full bg-cyan-600 text-white flex items-center justify-center text-[13px] font-black shrink-0" },
-          (profile?.full_name || profile?.username || "?").charAt(0).toUpperCase()),
-        h("div", { className:"min-w-0 flex-1" },
-          h("div", { className:"text-[12px] font-black text-slate-800 truncate" }, profile?.full_name || profile?.username || "User"),
-          h("div", { className:"text-[10px] font-bold text-slate-500 truncate" }, "@" + (profile?.username || ""))
-        )
-      )
+    h("div", { className:"px-3 py-2 border-b text-center" },
+      h("div", { className:"text-[13px] font-black tracking-tight text-cyan-700 truncate" }, "ULTRA LEDGER")
     ),
     h("div", { className:"p-3 flex flex-col gap-2 overflow-y-auto flex-1" }, navBtns),
     h("div", { className:"p-3 border-t text-[10px] font-bold opacity-70 "+(theme==="midnight"?"border-zinc-800":"border-gray-200") },
