@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,290 +8,298 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<style>
-  body { margin: 0; padding: 0; font-family: Inter, Arial, sans-serif; }
-  * { box-sizing: border-box; }
-</style>
 </head>
 <body>
 <div id="root"></div>
-
 <script>
-const h = React.createElement;
-const { useState, useEffect, useMemo, useRef } = React;
+var h = React.createElement;
+var useState = React.useState;
+var useEffect = React.useEffect;
+var useRef = React.useRef;
 
-const SUPABASE_URL = "https://kzgqsjbayluqyhjhytkt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_NllVu5uINdJpICN59kjKQA_ynf6GoUZ";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-const EMAIL_DOMAIN = "@ultraledger.local";
+var SB_URL = "https://kzgqsjbayluqyhjhytkt.supabase.co";
+var SB_KEY = "sb_publishable_NllVu5uINdJpICN59kjKQA_ynf6GoUZ";
+var sb = supabase.createClient(SB_URL, SB_KEY);
+var DOMAIN = "@ultraledger.local";
 
-function LoginScreen({ onLogin }) {
-  const [u, setU] = useState("");
-  const [p, setP] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
+function App() {
+  var a1 = useState(null); var session = a1[0], setSession = a1[1];
+  var a2 = useState(null); var profile = a2[0], setProfile = a2[1];
+  var a3 = useState(false); var ready = a3[0], setReady = a3[1];
+  var a4 = useState(""); var u = a4[0], setU = a4[1];
+  var a5 = useState(""); var p = a5[0], setP = a5[1];
+  var a6 = useState(""); var err = a6[0], setErr = a6[1];
+  var a7 = useState(true); var loading = a7[0], setLoading = a7[1];
+  var a8 = useState([]); var parties = a8[0], setParties = a8[1];
+  var a9 = useState([]); var ledgers = a9[0], setLedgers = a9[1];
+  var a10 = useState(""); var selectedParty = a10[0], setSelectedParty = a10[1];
+  var a11 = useState(""); var counter = a11[0], setCounter = a11[1];
+  var a12 = useState(""); var amount = a12[0], setAmount = a12[1];
+  var a13 = useState(""); var remark = a13[0], setRemark = a13[1];
+  var a14 = useState(""); var status = a14[0], setStatus = a14[1];
+  var a15 = useState(null); var companyId = a15[0], setCompanyId = a15[1];
+  var a16 = useState(""); var companyName = a16[0], setCompanyName = a16[1];
 
-  async function submit(e) {
-    e.preventDefault();
-    setErr(""); setBusy(true);
-    try {
-      const uname = u.trim().toLowerCase();
-      const { data: prof } = await sb.from("profiles").select("username, company_id").eq("username", uname).maybeSingle();
-      if (!prof || !prof.company_id) throw new Error("Username not found");
-      const { data: comp } = await sb.from("companies").select("code").eq("id", prof.company_id).single();
-      if (!comp) throw new Error("Company not found");
-      const email = uname + "." + comp.code.toLowerCase() + EMAIL_DOMAIN;
-      const { data, error } = await sb.auth.signInWithPassword({ email, password: p });
-      if (error) throw new Error("Wrong username or password");
-      await onLogin(data.session);
-    } catch (e) { setErr(e.message); }
-    finally { setBusy(false); }
-  }
+  var saveTimer = useRef(null);
+  var skipSave = useRef(true);
 
-  return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100 p-4" },
-    h("form", { onSubmit: submit, className: "bg-white rounded-2xl shadow-xl p-8 w-full max-w-md" },
-      h("div", { className: "text-center mb-6" },
-        h("div", { className: "text-[52px]" }, "📒"),
-        h("div", { className: "text-[24px] font-black text-slate-800" }, "ULTRA LEDGER")),
-      h("input", { value: u, onChange: e => setU(e.target.value.toLowerCase()), placeholder: "Username", autoFocus: true,
-        className: "w-full h-12 rounded-xl border px-4 mb-3 text-[14px] font-bold" }),
-      h("input", { type: "password", value: p, onChange: e => setP(e.target.value), placeholder: "Password",
-        className: "w-full h-12 rounded-xl border px-4 mb-4 text-[14px] font-bold" }),
-      err && h("div", { className: "mb-3 p-3 rounded-lg bg-red-50 text-red-700 text-[12px] font-bold" }, err),
-      h("button", { type: "submit", disabled: busy,
-        className: "w-full h-12 rounded-xl bg-cyan-600 text-white font-black" },
-        busy ? "..." : "LOGIN")));
-}
-
-function LedgerApp({ session, profile, onLogout }) {
-  const [loading, setLoading] = useState(true);
-  const [parties, setParties] = useState([]);
-  const [ledgers, setLedgers] = useState([]);
-  const [selectedParty, setSelectedParty] = useState("");
-  const [counter, setCounter] = useState("");
-  const [amount, setAmount] = useState("");
-  const [remark, setRemark] = useState("");
-  const [status, setStatus] = useState("");
-  const [companyId, setCompanyId] = useState(null);
-  const [companyName, setCompanyName] = useState("");
-  const saveTimerRef = useRef(null);
-  const skipRef = useRef(true);
-
-  // Load on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        // Get company_id
-        const { data: prof } = await sb.from("profiles").select("company_id").eq("id", session.user.id).single();
-        if (!prof || !prof.company_id) { onLogout(); return; }
-        setCompanyId(prof.company_id);
-
-        const { data: comp } = await sb.from("companies").select("name").eq("id", prof.company_id).single();
-        setCompanyName(comp?.name || "");
-
-        // Load cloud
-        let cloudData = null;
-        const { data: st } = await sb.from("company_state").select("state").eq("company_id", prof.company_id).maybeSingle();
-        if (st && st.state) cloudData = st.state;
-
-        // Load local
-        let localData = null;
-        try {
-          const raw = localStorage.getItem("ul_state_" + prof.company_id);
-          if (raw) localData = JSON.parse(raw);
-        } catch(e) {}
-
-        // Pick bigger
-        let final = null;
-        const c = [cloudData, localData].filter(d => d && Array.isArray(d.ledgers));
-        if (c.length === 0) {
-          final = { parties: [{id:"AA",name:"AA",status:"Active"},{id:"BB",name:"BB",status:"Active"}], ledgers: [], companyName: comp?.name || "" };
-        } else {
-          c.sort((a, b) => (b.ledgers.length) - (a.ledgers.length));
-          final = c[0];
-        }
-
-        setParties(final.parties || []);
-        setLedgers(final.ledgers || []);
-        if (final.parties && final.parties.length > 0) {
-          setSelectedParty(final.parties[0].id);
-          if (final.parties.length > 1) setCounter(final.parties[1].id);
-        }
-        setLoading(false);
-        setTimeout(() => { skipRef.current = false; }, 1000);
-      } catch(e) { console.error(e); setLoading(false); }
-    })();
+  useEffect(function() {
+    sb.auth.getSession().then(function(r) {
+      if (r.data.session) {
+        setSession(r.data.session);
+        sb.from("profiles").select("*").eq("id", r.data.session.user.id).single().then(function(pr) {
+          if (pr.data) setProfile(pr.data);
+          setReady(true);
+        });
+      } else {
+        setReady(true);
+      }
+    });
+    var sub = sb.auth.onAuthStateChange(function(evt, sess) {
+      if (evt === "SIGNED_OUT") { setSession(null); setProfile(null); }
+    });
+    return function() { sub.data.subscription.unsubscribe(); };
   }, []);
 
-  // Auto save to cloud (debounced)
-  useEffect(() => {
-    if (loading || skipRef.current || !companyId) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      const state = { parties, ledgers, savedAt: Date.now() };
-      try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(state)); } catch(e) {}
+  useEffect(function() {
+    if (!session || !profile || !profile.company_id) return;
+    setLoading(true);
+    var cid = profile.company_id;
+    setCompanyId(cid);
+    sb.from("companies").select("name").eq("id", cid).single().then(function(co) {
+      if (co.data) setCompanyName(co.data.name);
+    });
+    sb.from("company_state").select("state").eq("company_id", cid).maybeSingle().then(function(st) {
+      var cloud = (st.data && st.data.state) ? st.data.state : null;
+      var local = null;
       try {
-        setStatus("saving");
-        const { error } = await sb.from("company_state").upsert({
-          company_id: companyId,
-          state,
-          updated_at: new Date().toISOString(),
-          updated_by: session.user.id
-        }, { onConflict: "company_id" });
-        if (error) { console.error(error); setStatus("error"); }
-        else { setStatus("saved"); setTimeout(() => setStatus(""), 1500); }
-      } catch(e) { console.error(e); setStatus("error"); }
+        var raw = localStorage.getItem("ul_state_" + cid);
+        if (raw) local = JSON.parse(raw);
+      } catch(ex) {}
+      var candidates = [];
+      if (cloud && cloud.ledgers) candidates.push(cloud);
+      if (local && local.ledgers) candidates.push(local);
+      var final;
+      if (candidates.length === 0) {
+        final = { parties: [{id:"AA",name:"AA",status:"Active"},{id:"BB",name:"BB",status:"Active"}], ledgers: [] };
+      } else {
+        candidates.sort(function(a, b) { return (b.ledgers.length || 0) - (a.ledgers.length || 0); });
+        final = candidates[0];
+      }
+      setParties(final.parties || []);
+      setLedgers(final.ledgers || []);
+      if (final.parties && final.parties.length > 0) {
+        setSelectedParty(final.parties[0].id);
+        if (final.parties.length > 1) setCounter(final.parties[1].id);
+      }
+      setLoading(false);
+      setTimeout(function() { skipSave.current = false; }, 1000);
+    });
+  }, [session, profile]);
+
+  useEffect(function() {
+    if (loading || skipSave.current || !companyId) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(function() {
+      var st = { parties: parties, ledgers: ledgers, savedAt: Date.now() };
+      try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(st)); } catch(ex) {}
+      setStatus("saving");
+      sb.from("company_state").upsert({
+        company_id: companyId,
+        state: st,
+        updated_at: new Date().toISOString(),
+        updated_by: session.user.id
+      }, { onConflict: "company_id" }).then(function(r) {
+        if (r.error) { setStatus("error"); return; }
+        setStatus("saved");
+        setTimeout(function() { setStatus(""); }, 1500);
+      });
     }, 400);
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+    return function() { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [parties, ledgers, loading, companyId]);
 
-  // Force save before logout
-  async function doLogout() {
+  function doLogin(ev) {
+    ev.preventDefault();
+    setErr("");
+    var uname = u.trim().toLowerCase();
+    sb.from("profiles").select("username, company_id").eq("username", uname).maybeSingle().then(function(pr) {
+      if (!pr.data || !pr.data.company_id) { setErr("Username not found"); return; }
+      sb.from("companies").select("code").eq("id", pr.data.company_id).single().then(function(co) {
+        if (!co.data) { setErr("Company not found"); return; }
+        var email = uname + "." + co.data.code.toLowerCase() + DOMAIN;
+        sb.auth.signInWithPassword({ email: email, password: p }).then(function(r) {
+          if (r.error) { setErr("Wrong username or password"); return; }
+          setSession(r.data.session);
+          sb.from("profiles").select("*").eq("id", r.data.session.user.id).single().then(function(pr2) {
+            if (pr2.data) setProfile(pr2.data);
+          });
+        });
+      });
+    });
+  }
+
+  function doLogout() {
     if (companyId) {
-      const state = { parties, ledgers, savedAt: Date.now() };
-      try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(state)); } catch(e) {}
-      try {
-        await sb.from("company_state").upsert({
-          company_id: companyId, state,
-          updated_at: new Date().toISOString(),
-          updated_by: session.user.id
-        }, { onConflict: "company_id" });
-      } catch(e) {}
+      var st = { parties: parties, ledgers: ledgers, savedAt: Date.now() };
+      try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(st)); } catch(ex) {}
+      sb.from("company_state").upsert({
+        company_id: companyId,
+        state: st,
+        updated_at: new Date().toISOString(),
+        updated_by: session.user.id
+      }, { onConflict: "company_id" }).then(function() {
+        sb.auth.signOut();
+      });
+    } else {
+      sb.auth.signOut();
     }
-    await onLogout();
   }
 
   function addEntry() {
     if (!amount || !counter || !selectedParty) return;
     if (selectedParty === counter) return alert("Same party");
-    const nums = amount.split("/").map(s => parseFloat(s.trim())).filter(n => !isNaN(n) && n !== 0);
-    if (!nums.length) return alert("Invalid amount");
-    const now = Date.now();
-    const date = new Date().toISOString().slice(0, 10);
-    const time = String(new Date().getHours()).padStart(2, "0") + ":" + String(new Date().getMinutes()).padStart(2, "0");
-    const newEntries = [];
-    nums.forEach((n, i) => {
-      const pairId = "pair_" + now + "_" + i;
-      newEntries.push({ id: "e_" + now + "_" + i + "_1", pairId, date, time, partyId: selectedParty, counterPartyId: counter, amount: n, remark: remark.trim(), createdAt: now + i*2 });
-      newEntries.push({ id: "e_" + now + "_" + i + "_2", pairId, date, time, partyId: counter, counterPartyId: selectedParty, amount: -n, remark: remark.trim(), createdAt: now + i*2 + 1 });
-    });
-    setLedgers(prev => prev.concat(newEntries));
-    setAmount(""); setRemark("");
+    var parts = amount.split("/");
+    var nums = [];
+    for (var i = 0; i < parts.length; i++) {
+      var n = parseFloat(parts[i].trim());
+      if (!isNaN(n) && n !== 0) nums.push(n);
+    }
+    if (nums.length === 0) return alert("Invalid amount");
+    var now = Date.now();
+    var dt = new Date();
+    var date = dt.toISOString().slice(0, 10);
+    var time = String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0");
+    var newEntries = [];
+    for (var j = 0; j < nums.length; j++) {
+      var nn = nums[j];
+      var pid = "pair_" + now + "_" + j;
+      newEntries.push({ id: "e_" + now + "_" + j + "_1", pairId: pid, date: date, time: time, partyId: selectedParty, counterPartyId: counter, amount: nn, remark: remark.trim(), createdAt: now + j * 2 });
+      newEntries.push({ id: "e_" + now + "_" + j + "_2", pairId: pid, date: date, time: time, partyId: counter, counterPartyId: selectedParty, amount: -nn, remark: remark.trim(), createdAt: now + j * 2 + 1 });
+    }
+    setLedgers(ledgers.concat(newEntries));
+    setAmount("");
+    setRemark("");
   }
 
-  function deleteEntry(e) {
-    if (e.openingLocked) return;
+  function deleteEntry(entry) {
+    if (entry.openingLocked) return;
     if (!confirm("Delete from both sides?")) return;
-    setLedgers(prev => prev.filter(x => x.pairId !== e.pairId));
+    var newList = [];
+    for (var i = 0; i < ledgers.length; i++) {
+      if (ledgers[i].pairId !== entry.pairId) newList.push(ledgers[i]);
+    }
+    setLedgers(newList);
   }
 
-  const partyRows = useMemo(() => {
-    return ledgers.filter(l => l.partyId === selectedParty).sort((a,b) => a.createdAt - b.createdAt);
-  }, [ledgers, selectedParty]);
+  if (!ready) return h("div", { className: "min-h-screen flex items-center justify-center" }, "Loading...");
 
-  const balance = useMemo(() => partyRows.reduce((a, e) => a + e.amount, 0), [partyRows]);
+  if (!session) {
+    return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100" },
+      h("form", { onSubmit: doLogin, className: "bg-white p-8 rounded-2xl shadow-xl w-96" },
+        h("div", { className: "text-center text-[32px] mb-4" }, "📒 ULTRA LEDGER"),
+        h("input", { value: u, onChange: function(e) { setU(e.target.value); }, placeholder: "Username", className: "w-full h-12 rounded border px-4 mb-3" }),
+        h("input", { type: "password", value: p, onChange: function(e) { setP(e.target.value); }, placeholder: "Password", className: "w-full h-12 rounded border px-4 mb-3" }),
+        err ? h("div", { className: "text-red-600 mb-3 text-[12px]" }, err) : null,
+        h("button", { className: "w-full h-12 bg-cyan-600 text-white rounded font-bold" }, "LOGIN")
+      )
+    );
+  }
 
-  const runningBalance = useMemo(() => {
-    const m = new Map(); let run = 0;
-    partyRows.forEach(e => { run += e.amount; m.set(e.id, run); });
-    return m;
-  }, [partyRows]);
+  if (loading) return h("div", { className: "min-h-screen flex items-center justify-center" }, "Loading ledger...");
 
-  if (loading) return h("div", { className: "min-h-screen flex items-center justify-center" }, "Loading...");
+  var partyRows = [];
+  for (var i = 0; i < ledgers.length; i++) {
+    if (ledgers[i].partyId === selectedParty) partyRows.push(ledgers[i]);
+  }
+  partyRows.sort(function(a, b) { return a.createdAt - b.createdAt; });
+
+  var balMap = {};
+  var running = 0;
+  for (var k = 0; k < partyRows.length; k++) {
+    running += partyRows[k].amount;
+    balMap[partyRows[k].id] = running;
+  }
+  var totalBalance = running;
+
+  var rows = [];
+  for (var r = 0; r < partyRows.length; r++) {
+    (function(entry) {
+      var bal = balMap[entry.id] || 0;
+      rows.push(
+        h("tr", { key: entry.id, className: "border-t" },
+          h("td", { className: "p-2 text-[12px]" }, entry.date + " " + entry.time),
+          h("td", { className: "p-2 font-bold" }, entry.counterPartyId || "-"),
+          h("td", { className: "p-2" }, entry.remark || "-"),
+          h("td", { className: "p-2 text-right text-red-600" }, entry.amount < 0 ? "₹" + Math.abs(entry.amount).toLocaleString("en-IN") : "-"),
+          h("td", { className: "p-2 text-right text-green-600" }, entry.amount > 0 ? "₹" + entry.amount.toLocaleString("en-IN") : "-"),
+          h("td", { className: "p-2 text-right font-bold " + (bal < 0 ? "text-red-600" : "text-green-600") }, "₹" + bal.toLocaleString("en-IN")),
+          h("td", { className: "p-2" },
+            h("button", { onClick: function() { deleteEntry(entry); }, className: "text-[10px] px-2 py-0.5 bg-red-50 text-red-600 border rounded" }, "Del")
+          )
+        )
+      );
+    })(partyRows[r]);
+  }
+
+  var partyOpts = [];
+  for (var p1 = 0; p1 < parties.length; p1++) {
+    partyOpts.push(h("option", { key: parties[p1].id, value: parties[p1].id }, parties[p1].id));
+  }
+
+  var counterOpts = [];
+  for (var p2 = 0; p2 < parties.length; p2++) {
+    if (parties[p2].id !== selectedParty) {
+      counterOpts.push(h("option", { key: parties[p2].id, value: parties[p2].id }, parties[p2].id));
+    }
+  }
+
+  var statusText = status === "saving" ? "Saving..." : status === "saved" ? "Saved" : status === "error" ? "Failed" : "Cloud";
+
+  var tableBody = rows.length > 0 ? rows : [h("tr", { key: "empty" }, h("td", { colSpan: 7, className: "p-6 text-center text-slate-400" }, "No entries"))];
 
   return h("div", { className: "min-h-screen bg-slate-100" },
-    h("header", { className: "bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-10" },
-      h("div", { className: "flex items-center gap-3" },
-        h("span", { className: "text-[24px]" }, "📒"),
-        h("div", null,
-          h("div", { className: "text-[15px] font-black" }, companyName || "ULTRA LEDGER"),
-          h("div", { className: "text-[11px] font-bold text-slate-500" }, "@" + profile?.username))),
-      h("div", { className: "flex items-center gap-2" },
-        h("span", { className: "text-[11px] font-bold px-2 py-1 rounded-full " + (status === "saving" ? "bg-amber-100 text-amber-700" : status === "saved" ? "bg-green-100 text-green-700" : status === "error" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500") },
-          status === "saving" ? "☁️ Saving..." : status === "saved" ? "✓ Saved" : status === "error" ? "❌ Failed" : "☁️ Cloud"),
-        h("button", { onClick: doLogout, className: "h-9 px-3 rounded-lg border font-black text-[12px]" }, "Logout"))),
-
+    h("header", { className: "bg-white border-b p-3 flex justify-between items-center" },
+      h("div", { className: "font-black text-[15px]" }, companyName || "ULTRA LEDGER"),
+      h("div", { className: "flex gap-2 items-center" },
+        h("span", { className: "text-[11px] px-2 py-1 bg-slate-100 rounded" }, statusText),
+        h("button", { onClick: doLogout, className: "px-3 py-1 border rounded font-bold text-[12px]" }, "Logout")
+      )
+    ),
     h("div", { className: "p-4" },
-      h("div", { className: "bg-white rounded-xl border p-4 mb-4 flex flex-wrap gap-3 items-center" },
-        h("label", { className: "text-[13px] font-bold" }, "Party:"),
-        h("select", { value: selectedParty, onChange: e => { setSelectedParty(e.target.value); const alt = parties.find(p => p.id !== e.target.value); if (alt) setCounter(alt.id); },
-          className: "h-10 rounded-lg border px-3 text-[13px] font-bold" },
-          parties.map(p => h("option", { key: p.id, value: p.id }, p.id))),
-        h("div", { className: "text-[18px] font-black " + (balance >= 0 ? "text-green-600" : "text-red-600") }, "Balance: ₹" + Number(balance).toLocaleString("en-IN"))),
-
-      h("div", { className: "bg-white rounded-xl border overflow-hidden mb-4" },
+      h("div", { className: "bg-white p-3 rounded-xl border mb-4 flex gap-3 items-center" },
+        h("label", { className: "font-bold text-[13px]" }, "Party:"),
+        h("select", { value: selectedParty, onChange: function(e) { setSelectedParty(e.target.value); }, className: "border rounded px-3 py-2" }, partyOpts),
+        h("div", { className: "text-[18px] font-black " + (totalBalance >= 0 ? "text-green-600" : "text-red-600") }, "₹" + totalBalance.toLocaleString("en-IN"))
+      ),
+      h("div", { className: "bg-white rounded-xl border mb-4 overflow-hidden" },
         h("table", { className: "w-full text-[13px]" },
           h("thead", { className: "bg-slate-100" },
             h("tr", null,
-              h("th", { className: "text-left p-2 text-[11px] font-black uppercase" }, "Date"),
-              h("th", { className: "text-left p-2 text-[11px] font-black uppercase" }, "Counter"),
-              h("th", { className: "text-left p-2 text-[11px] font-black uppercase" }, "Remark"),
-              h("th", { className: "text-right p-2 text-[11px] font-black uppercase" }, "Debit"),
-              h("th", { className: "text-right p-2 text-[11px] font-black uppercase" }, "Credit"),
-              h("th", { className: "text-right p-2 text-[11px] font-black uppercase" }, "Balance"),
-              h("th", { className: "text-left p-2 text-[11px] font-black uppercase" }, "Act"))),
-          h("tbody", null,
-            partyRows.length === 0 && h("tr", null, h("td", { colSpan: 7, className: "p-8 text-center text-slate-400" }, "No entries")),
-            partyRows.map(e => {
-              const bal = runningBalance.get(e.id) || 0;
-              return h("tr", { key: e.id, className: "border-t" },
-                h("td", { className: "p-2 font-mono text-[12px]" }, e.date + " " + e.time),
-                h("td", { className: "p-2 font-bold" }, e.counterPartyId || "-"),
-                h("td", { className: "p-2" }, e.remark || "-"),
-                h("td", { className: "p-2 text-right font-mono text-red-600" }, e.amount < 0 ? "₹" + Math.abs(e.amount).toLocaleString("en-IN") : "-"),
-                h("td", { className: "p-2 text-right font-mono text-green-600" }, e.amount > 0 ? "₹" + e.amount.toLocaleString("en-IN") : "-"),
-                h("td", { className: "p-2 text-right font-mono font-black " + (bal < 0 ? "text-red-600" : "text-green-600") }, "₹" + bal.toLocaleString("en-IN")),
-                h("td", { className: "p-2" },
-                  h("button", { onClick: () => deleteEntry(e), className: "text-[10px] px-2 py-0.5 rounded bg-red-50 text-red-600 border border-red-200 font-bold" }, "Del")));
-            }))),
-
-      h("div", { className: "bg-white rounded-xl border p-4 flex gap-2 items-end" },
+              h("th", { className: "p-2 text-left text-[11px] uppercase" }, "Date"),
+              h("th", { className: "p-2 text-left text-[11px] uppercase" }, "Counter"),
+              h("th", { className: "p-2 text-left text-[11px] uppercase" }, "Remark"),
+              h("th", { className: "p-2 text-right text-[11px] uppercase" }, "Debit"),
+              h("th", { className: "p-2 text-right text-[11px] uppercase" }, "Credit"),
+              h("th", { className: "p-2 text-right text-[11px] uppercase" }, "Balance"),
+              h("th", { className: "p-2 text-left text-[11px] uppercase" }, "Act")
+            )
+          ),
+          h("tbody", null, tableBody)
+        )
+      ),
+      h("div", { className: "bg-white p-3 rounded-xl border flex gap-2" },
         h("div", { style: { flex: "0 0 20%" } },
-          h("label", { className: "text-[10px] font-black uppercase" }, "Counter"),
-          h("select", { value: counter, onChange: e => setCounter(e.target.value), className: "w-full h-10 rounded-lg border px-3 text-[13px] font-bold" },
-            parties.filter(p => p.id !== selectedParty).map(p => h("option", { key: p.id, value: p.id }, p.id)))),
-        h("div", { style: { flex: "0 0 20%" } },
-          h("label", { className: "text-[10px] font-black uppercase" }, "Amount"),
-          h("input", { value: amount, onChange: e => { if (/^[+\-\d.\s\/]*$/.test(e.target.value)) setAmount(e.target.value); },
-            onKeyDown: e => { if (e.key === "Enter") document.getElementById("remarkInput")?.focus(); },
-            placeholder: "100/200", className: "w-full h-10 rounded-lg border px-3 text-[14px] font-black" })),
-        h("div", { style: { flex: "1" } },
-          h("label", { className: "text-[10px] font-black uppercase" }, "Remark"),
-          h("input", { id: "remarkInput", value: remark, onChange: e => setRemark(e.target.value),
-            onKeyDown: e => { if (e.key === "Enter") addEntry(); },
-            placeholder: "Pay...", className: "w-full h-10 rounded-lg border px-3" })),
-        h("button", { onClick: addEntry, className: "h-10 px-5 rounded-lg bg-cyan-600 text-white font-black" }, "ADD"))));
+          h("select", { value: counter, onChange: function(e) { setCounter(e.target.value); }, className: "w-full border rounded p-2" }, counterOpts)
+        ),
+        h("input", { value: amount, onChange: function(e) { setAmount(e.target.value); }, placeholder: "Amount", className: "border rounded p-2", style: { flex: "0 0 20%" } }),
+        h("input", { value: remark, onChange: function(e) { setRemark(e.target.value); }, placeholder: "Remark", className: "border rounded p-2", style: { flex: "1" }, onKeyDown: function(e) { if (e.key === "Enter") addEntry(); } }),
+        h("button", { onClick: addEntry, className: "bg-cyan-600 text-white px-5 rounded font-bold" }, "ADD")
+      )
+    )
+  );
 }
 
-function MainApp() {
-  const [session, setSession] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const { data: { session } } = await sb.auth.getSession();
-      if (session) {
-        const { data: prof } = await sb.from("profiles").select("*").eq("id", session.user.id).single();
-        if (prof) { setSession(session); setProfile(prof); }
-      }
-      setReady(true);
-    })();
-    const { data: sub } = sb.auth.onAuthStateChange((event, sess) => {
-      if (event === "SIGNED_OUT") { setSession(null); setProfile(null); }
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  if (!ready) return h("div", { className: "min-h-screen flex items-center justify-center" }, "Loading...");
-  if (!session) return h(LoginScreen, { onLogin: async (sess) => {
-    const { data: prof } = await sb.from("profiles").select("*").eq("id", sess.user.id).single();
-    setSession(sess); setProfile(prof);
-  }});
-  return h(LedgerApp, { session, profile, onLogout: () => sb.auth.signOut() });
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(h(MainApp));
+ReactDOM.createRoot(document.getElementById("root")).render(h(App));
 </script>
 </body>
 </html>
