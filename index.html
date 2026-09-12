@@ -20,40 +20,37 @@ var sb = supabase.createClient(SB_URL, SB_KEY);
 var DOMAIN = "@ultraledger.local";
 
 var STATE = {
-  session: null,
-  profile: null,
-  companyId: null,
-  companyName: "",
-  parties: [],
-  ledgers: [],
-  finals: [],
-  pin: "",
-  history: [],
-  lastBackup: 0,
-  theme: "ocean",
-  selectedParty: "BB",
-  counter: "AA",
-  tab: "ledger",
-  saveStatus: "idle",
-  ready: false
+  session: null, profile: null, companyId: null, companyName: "",
+  parties: [], ledgers: [], finals: [], pin: "", history: [],
+  lastBackup: 0, theme: "ocean",
+  selectedParty: "", counter: "",
+  tab: "ledger", saveStatus: "idle", ready: false,
+  search: "", showCols: { date:true, counter:true, remark:true, debit:true, credit:true, balance:true, action:true },
+  showColDrop: false, frOpen: false, frSearch: "", historyOpen: false, historyFilter: "All",
+  finalFilter: "", finalSearch: "", filterFrom: "", filterTo: ""
 };
 var saveTimer = null;
 var skipSave = true;
 
-function fmt(n) { return isNaN(n) ? "₹0/-" : "₹" + Number(n).toLocaleString("en-IN") + "/-"; }
-function fmtAbs(n) { return "₹" + Math.abs(n).toLocaleString("en-IN") + "/-"; }
-function today() { return new Date().toISOString().slice(0,10); }
-function nowT() { var d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
-function dmy(iso) { if(!iso) return "-"; var p=iso.split("-"); return p.length===3&&p[0].length===4 ? p[2]+"-"+p[1]+"-"+p[0] : iso; }
-function $(id) { return document.getElementById(id); }
+var THEMES = {
+  ocean: { label:"Ocean", pageBg:"bg-[#f8fafc]", header:"bg-white border-slate-200", sbBg:"bg-white", sbActive:"bg-cyan-600 text-white border-cyan-600", sbInactive:"bg-white text-slate-600 border-slate-200", addBtn:"bg-cyan-600 text-white", closingBtn:"bg-cyan-500 text-white", card:"bg-white border-slate-200", input:"bg-white border-slate-200 text-slate-900", tblHeader:"bg-slate-100", logo:"bg-slate-900 text-white" },
+  midnight: { label:"Midnight", pageBg:"bg-black", header:"bg-black border-zinc-800", sbBg:"bg-black", sbActive:"bg-zinc-800 text-white border-zinc-700", sbInactive:"bg-[#111] text-zinc-400 border-zinc-800", addBtn:"bg-white text-black", closingBtn:"bg-zinc-800 text-white border border-zinc-700", card:"bg-[#111] border-zinc-800", input:"bg-zinc-900 border-zinc-800 text-white", tblHeader:"bg-zinc-900", logo:"bg-white text-black" }
+};
+
+function fmt(n){ if(isNaN(n)||n===null||n===undefined) return "₹0/-"; return "₹"+Number(n).toLocaleString("en-IN")+"/-"; }
+function fmtAbs(n){ return "₹"+Math.abs(n).toLocaleString("en-IN")+"/-"; }
+function today(){ return new Date().toISOString().slice(0,10); }
+function nowT(){ var d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
+function dmy(iso){ if(!iso) return "-"; var p=iso.split("-"); return (p.length===3&&p[0].length===4)?p[2]+"-"+p[1]+"-"+p[0]:iso; }
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
 var DEFAULT_PARTIES = [
   { id:"AA", name:"AA", status:"Active" },
   { id:"BB", name:"BB", status:"Active" }
 ];
 
-/* ═══ SAVE FUNCTIONS ═══ */
-function buildSnap() {
+function buildSnap(){
   return {
     parties: STATE.parties, ledgers: STATE.ledgers, finals: STATE.finals,
     pin: STATE.pin, theme: STATE.theme, companyName: STATE.companyName,
@@ -63,101 +60,75 @@ function buildSnap() {
   };
 }
 
-function saveLocal() {
-  if (!STATE.companyId) return;
-  try { localStorage.setItem("ul_state_" + STATE.companyId, JSON.stringify(buildSnap())); } catch(e) {}
+function saveLocal(){
+  if(!STATE.companyId) return;
+  try{ localStorage.setItem("ul_state_"+STATE.companyId, JSON.stringify(buildSnap())); }catch(e){}
 }
 
-function saveCloud() {
-  if (!STATE.companyId || !STATE.session) return;
+function saveCloud(){
+  if(!STATE.companyId || !STATE.session) return Promise.resolve();
   var snap = buildSnap();
-  STATE.saveStatus = "saving";
-  renderStatus();
-  sb.from("company_state").upsert({
+  STATE.saveStatus = "saving"; renderStatus();
+  return sb.from("company_state").upsert({
     company_id: STATE.companyId, state: snap,
     updated_at: new Date().toISOString(), updated_by: STATE.session.user.id
-  }, { onConflict: "company_id" }).then(function(r) {
-    if (r.error) { console.error(r.error); STATE.saveStatus = "error"; }
-    else { STATE.saveStatus = "saved"; setTimeout(function(){ STATE.saveStatus="idle"; renderStatus(); }, 1500); }
+  }, { onConflict:"company_id" }).then(function(r){
+    if(r.error){ console.error(r.error); STATE.saveStatus="error"; }
+    else{ STATE.saveStatus="saved"; setTimeout(function(){ STATE.saveStatus="idle"; renderStatus(); }, 1500); }
     renderStatus();
   });
 }
 
-function saveNow() {
-  saveLocal();
-  saveCloud();
-}
+function saveNow(){ saveLocal(); saveCloud(); }
 
-function scheduleCloudSave() {
-  if (skipSave) return;
-  saveLocal();
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveCloud, 500);
-}
-
-function renderStatus() {
-  var el = $("save-status");
-  if (!el) return;
+function renderStatus(){
+  var el = $("save-status"); if(!el) return;
   var s = STATE.saveStatus;
-  if (s === "saving") { el.textContent = "☁️ Saving..."; el.className = "text-[11px] font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-700"; }
-  else if (s === "saved") { el.textContent = "✓ Saved"; el.className = "text-[11px] font-bold px-2 py-1 rounded-full bg-green-100 text-green-700"; }
-  else if (s === "error") { el.textContent = "❌ Failed"; el.className = "text-[11px] font-bold px-2 py-1 rounded-full bg-red-100 text-red-700"; }
-  else { el.textContent = "☁️ Cloud"; el.className = "text-[11px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500"; }
+  if(s==="saving"){ el.textContent="Saving..."; el.className="text-[11px] font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-700"; }
+  else if(s==="saved"){ el.textContent="Saved"; el.className="text-[11px] font-bold px-2 py-1 rounded-full bg-green-100 text-green-700"; }
+  else if(s==="error"){ el.textContent="Failed"; el.className="text-[11px] font-bold px-2 py-1 rounded-full bg-red-100 text-red-700"; }
+  else{ el.textContent="Cloud"; el.className="text-[11px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500"; }
 }
 
-/* ═══ LOGIN ═══ */
-function renderLogin() {
-  return `
-  <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-cyan-50 p-4">
-    <div class="w-full max-w-md">
-      <div class="text-center mb-6">
-        <div class="text-[52px] mb-2">📒</div>
-        <div class="text-[26px] font-black text-slate-800">ULTRA LEDGER</div>
-        <div class="text-[12px] font-bold text-slate-500 tracking-widest uppercase mt-1">Sign in</div>
-      </div>
-      <form id="login-form" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-7">
-        <div class="space-y-4">
-          <div>
-            <label class="text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5">Username</label>
-            <input id="login-username" autofocus placeholder="username" class="w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-cyan-500">
-          </div>
-          <div>
-            <label class="text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5">Password</label>
-            <input id="login-password" type="password" placeholder="••••••••" class="w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-cyan-500">
-          </div>
-        </div>
-        <div id="login-err" class="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700 hidden"></div>
-        <button type="submit" id="login-btn" class="mt-5 w-full h-12 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-black text-[14px]">LOGIN</button>
-      </form>
-    </div>
-  </div>`;
+/* ========== LOGIN ========== */
+function renderLogin(){
+  $("root").innerHTML = 
+    '<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-cyan-50 p-4">'+
+      '<div class="w-full max-w-md">'+
+        '<div class="text-center mb-6">'+
+          '<div class="text-[52px] mb-2">📒</div>'+
+          '<div class="text-[26px] font-black text-slate-800">ULTRA LEDGER</div>'+
+          '<div class="text-[12px] font-bold text-slate-500 tracking-widest uppercase mt-1">Sign in</div>'+
+        '</div>'+
+        '<form id="login-form" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-7">'+
+          '<div class="space-y-4">'+
+            '<div><label class="text-[11px] font-black uppercase text-slate-500 block mb-1.5">Username</label>'+
+            '<input id="login-username" autofocus placeholder="username" class="w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold"></div>'+
+            '<div><label class="text-[11px] font-black uppercase text-slate-500 block mb-1.5">Password</label>'+
+            '<input id="login-password" type="password" placeholder="********" class="w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold"></div>'+
+          '</div>'+
+          '<div id="login-err" class="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700 hidden"></div>'+
+          '<button type="submit" id="login-btn" class="mt-5 w-full h-12 rounded-xl bg-cyan-600 text-white font-black">LOGIN</button>'+
+        '</form>'+
+      '</div>'+
+    '</div>';
+  bindLogin();
 }
 
-function bindLogin() {
-  $("login-form").onsubmit = function(e) {
+function bindLogin(){
+  $("login-form").onsubmit = function(e){
     e.preventDefault();
     var u = $("login-username").value.trim().toLowerCase();
     var p = $("login-password").value;
-    var err = $("login-err");
-    var btn = $("login-btn");
-    err.classList.add("hidden");
-    btn.textContent = "...";
-    btn.disabled = true;
-
-    sb.from("profiles").select("username, company_id").eq("username", u).maybeSingle().then(function(pr) {
-      if (!pr.data || !pr.data.company_id) {
-        err.textContent = "Username not found"; err.classList.remove("hidden"); btn.disabled=false; btn.textContent="LOGIN"; return;
-      }
-      sb.from("companies").select("code").eq("id", pr.data.company_id).single().then(function(co) {
-        if (!co.data) {
-          err.textContent = "Company not found"; err.classList.remove("hidden"); btn.disabled=false; btn.textContent="LOGIN"; return;
-        }
+    var err = $("login-err"), btn = $("login-btn");
+    err.classList.add("hidden"); btn.textContent="..."; btn.disabled=true;
+    sb.from("profiles").select("username, company_id").eq("username", u).maybeSingle().then(function(pr){
+      if(!pr.data || !pr.data.company_id){ err.textContent="Username not found"; err.classList.remove("hidden"); btn.disabled=false; btn.textContent="LOGIN"; return; }
+      sb.from("companies").select("code").eq("id", pr.data.company_id).single().then(function(co){
+        if(!co.data){ err.textContent="Company not found"; err.classList.remove("hidden"); btn.disabled=false; btn.textContent="LOGIN"; return; }
         var email = u + "." + co.data.code.toLowerCase() + DOMAIN;
-        sb.auth.signInWithPassword({ email: email, password: p }).then(function(r) {
-          if (r.error) {
-            err.textContent = "Wrong username or password"; err.classList.remove("hidden");
-            btn.disabled=false; btn.textContent="LOGIN"; return;
-          }
+        sb.auth.signInWithPassword({ email:email, password:p }).then(function(r){
+          if(r.error){ err.textContent="Wrong username or password"; err.classList.remove("hidden"); btn.disabled=false; btn.textContent="LOGIN"; return; }
           STATE.session = r.data.session;
           loadAll();
         });
@@ -166,33 +137,28 @@ function bindLogin() {
   };
 }
 
-/* ═══ LOAD ═══ */
-function loadAll() {
-  sb.from("profiles").select("*").eq("id", STATE.session.user.id).single().then(function(pr) {
-    if (!pr.data || !pr.data.company_id) { sb.auth.signOut(); return; }
+/* ========== LOAD ========== */
+function loadAll(){
+  sb.from("profiles").select("*").eq("id", STATE.session.user.id).single().then(function(pr){
+    if(!pr.data || !pr.data.company_id){ sb.auth.signOut(); return; }
     STATE.profile = pr.data;
     STATE.companyId = pr.data.company_id;
-
-    sb.from("companies").select("name").eq("id", STATE.companyId).single().then(function(co) {
-      var compName = (co.data && co.data.name) || "";
-
-      sb.from("company_state").select("state").eq("company_id", STATE.companyId).maybeSingle().then(function(st) {
+    sb.from("companies").select("name").eq("id", STATE.companyId).single().then(function(co){
+      var compName = (co.data && co.data.name) ? co.data.name : "";
+      sb.from("company_state").select("state").eq("company_id", STATE.companyId).maybeSingle().then(function(st){
         var cloud = (st.data && st.data.state) ? st.data.state : null;
         var local = null;
-        try { var raw = localStorage.getItem("ul_state_" + STATE.companyId); if (raw) local = JSON.parse(raw); } catch(e) {}
-
+        try{ var raw = localStorage.getItem("ul_state_"+STATE.companyId); if(raw) local = JSON.parse(raw); }catch(e){}
         var candidates = [];
-        if (cloud && cloud.ledgers) candidates.push(cloud);
-        if (local && local.ledgers) candidates.push(local);
-
+        if(cloud && cloud.ledgers) candidates.push(cloud);
+        if(local && local.ledgers) candidates.push(local);
         var final;
-        if (candidates.length === 0) {
-          final = { parties: DEFAULT_PARTIES, ledgers: [], finals: [], history: [], companyName: compName, theme: "ocean", pin: "", lastBackupTime: 0 };
+        if(candidates.length === 0){
+          final = { parties: DEFAULT_PARTIES, ledgers:[], finals:[], history:[], companyName: compName, theme:"ocean", pin:"", lastBackupTime:0 };
         } else {
-          candidates.sort(function(a, b) { return (b.ledgers.length||0) - (a.ledgers.length||0); });
+          candidates.sort(function(a,b){ return (b.ledgers.length||0) - (a.ledgers.length||0); });
           final = candidates[0];
         }
-
         STATE.parties = final.parties || DEFAULT_PARTIES;
         STATE.ledgers = final.ledgers || [];
         STATE.finals = final.finals || [];
@@ -201,686 +167,802 @@ function loadAll() {
         STATE.theme = final.theme || "ocean";
         STATE.companyName = final.companyName || compName;
         STATE.lastBackup = final.lastBackupTime || 0;
-        if (STATE.parties.length > 0) {
+        if(STATE.parties.length > 0){
           STATE.selectedParty = STATE.parties[0].id;
-          if (STATE.parties.length > 1) STATE.counter = STATE.parties[1].id;
+          if(STATE.parties.length > 1) STATE.counter = STATE.parties[1].id;
         }
-
         STATE.ready = true;
-        setTimeout(function() { skipSave = false; }, 1500);
+        setTimeout(function(){ skipSave = false; }, 1500);
         render();
       });
     });
   });
 }
 
-/* ═══ RENDER ═══ */
-function render() {
-  if (!STATE.ready) {
+function render(){
+  if(!STATE.ready){
     $("root").innerHTML = '<div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="text-[40px] mb-3">📒</div><div class="font-black">Loading...</div></div></div>';
     return;
   }
-  if (!STATE.session || !STATE.profile) {
-    $("root").innerHTML = renderLogin();
-    bindLogin();
-    return;
+  if(!STATE.session || !STATE.profile){ renderLogin(); return; }
+  renderDashboard();
+}
+
+/* ========== DASHBOARD ========== */
+function renderDashboard(){
+  var T = THEMES[STATE.theme] || THEMES.ocean;
+  var po = "";
+  for(var i=0;i<STATE.parties.length;i++){
+    var p = STATE.parties[i];
+    po += '<option value="'+esc(p.id)+'"'+(p.id===STATE.selectedParty?" selected":"")+'>'+esc(p.id)+(p.status==="Deactive"?" (Deactive)":"")+'</option>';
   }
-  $("root").innerHTML = renderDashboard();
+  var nav = [
+    {id:"ledger", label:"LEDGER", icon:"📒"},
+    {id:"party", label:"PARTY MANAGER", icon:"👥"},
+    {id:"final", label:"FINAL REPORT", icon:"📄"},
+    {id:"trial", label:"TRIAL BALANCE", icon:"⚖️"},
+    {id:"profile", label:"PROFILE", icon:"👤"}
+  ];
+  var navHtml = "";
+  for(var n=0;n<nav.length;n++){
+    var it = nav[n];
+    var cls = STATE.tab===it.id ? T.sbActive : T.sbInactive;
+    navHtml += '<button data-tab="'+it.id+'" class="tab-btn w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left '+cls+'"><span>'+it.icon+'</span>'+it.label+'</button>';
+  }
+  var user = esc(STATE.profile.full_name || STATE.profile.username);
+  var backText = STATE.lastBackup ? new Date(STATE.lastBackup).toLocaleString("en-IN") : "Never";
+  var html =
+    '<div class="min-h-screen flex flex-col '+T.pageBg+'">'+
+      '<header class="sticky top-0 z-40 border-b flex items-center justify-between px-3 py-2 h-16 '+T.header+'">'+
+        '<div class="flex items-center gap-2 flex-1 flex-wrap">'+
+          '<label class="text-[13px] font-semibold">Party:</label>'+
+          '<select id="header-party" class="h-10 rounded-lg border px-3 text-[13px] font-bold '+T.input+'">'+po+'</select>'+
+          '<div id="header-balance" class="text-[18px] font-black"></div>'+
+        '</div>'+
+        '<div class="flex gap-2 items-center">'+
+          '<div id="save-status" class="text-[11px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">Cloud</div>'+
+          '<button id="btn-export" class="h-9 px-3 rounded-lg text-[13px] border '+T.exportBtnAlt+'">Excel</button>'+
+          '<button id="btn-logout" class="h-9 px-3 rounded-lg text-[13px] font-bold border">Logout</button>'+
+        '</div>'+
+      '</header>'+
+      '<div class="flex flex-1 relative">'+
+        '<aside class="fixed inset-y-0 left-0 w-[260px] border-r flex flex-col z-50 '+T.sbBg+'">'+
+          '<div class="h-16 flex items-center justify-center border-b"><div class="text-[14px] font-black text-cyan-700">ULTRA LEDGER</div></div>'+
+          '<div class="p-3 flex flex-col gap-2 flex-1">'+navHtml+'</div>'+
+          '<div class="p-3 border-t text-[10px] font-bold opacity-70">'+
+            '<div>Cloud: ON</div>'+
+            '<div class="mt-1">User: '+user+'</div>'+
+            '<div class="mt-1">Backup: '+backText+'</div>'+
+          '</div>'+
+        '</aside>'+
+        '<main id="main-content" class="flex-1 ml-[260px] min-w-0 flex flex-col overflow-auto"></main>'+
+      '</div>'+
+    '</div>';
+  $("root").innerHTML = html;
   bindDashboard();
 }
 
-function renderDashboard() {
-  return `
-  <div class="min-h-screen flex flex-col bg-slate-50">
-    <header class="sticky top-0 z-40 border-b bg-white border-slate-200 flex items-center justify-between px-3 py-2 h-16">
-      <div class="flex items-center gap-2 flex-1 flex-wrap">
-        <label class="text-[13px] font-semibold">Party:</label>
-        <select id="header-party" class="h-10 rounded-lg border px-3 text-[13px] font-bold">
-          ${STATE.parties.map(p => '<option value="' + p.id + '"' + (p.id===STATE.selectedParty?' selected':'') + '>' + p.id + (p.status==="Deactive"?" (Deactive)":"") + '</option>').join("")}
-        </select>
-        <div id="header-balance" class="text-[18px] font-black"></div>
-      </div>
-      <div class="flex gap-2 items-center">
-        <div id="save-status" class="text-[11px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">☁️ Cloud</div>
-        <button id="btn-export" class="h-9 px-3 rounded-lg text-[13px] border bg-white">📊 Excel</button>
-        <button id="btn-final" class="h-9 px-4 rounded-lg text-[13px] font-bold bg-cyan-500 text-white">FINAL</button>
-        <button id="btn-logout" class="h-9 px-3 rounded-lg text-[13px] font-bold border bg-white">Logout</button>
-      </div>
-    </header>
-    <div class="flex flex-1 relative">
-      <aside class="fixed inset-y-0 left-0 w-[260px] border-r bg-white flex flex-col z-50">
-        <div class="h-16 flex items-center justify-center border-b">
-          <div class="text-[14px] font-black text-cyan-700">ULTRA LEDGER</div>
-        </div>
-        <div class="p-3 flex flex-col gap-2 flex-1">
-          <button data-tab="ledger" class="tab-btn w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left ${STATE.tab==="ledger"?"bg-cyan-600 text-white border-cyan-600":"bg-white text-slate-600 border-slate-200"}">📒 LEDGER</button>
-          <button data-tab="party" class="tab-btn w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left ${STATE.tab==="party"?"bg-cyan-600 text-white border-cyan-600":"bg-white text-slate-600 border-slate-200"}">👥 PARTY MANAGER</button>
-          <button data-tab="final" class="tab-btn w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left ${STATE.tab==="final"?"bg-cyan-600 text-white border-cyan-600":"bg-white text-slate-600 border-slate-200"}">📄 FINAL REPORT</button>
-          <button data-tab="trial" class="tab-btn w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left ${STATE.tab==="trial"?"bg-cyan-600 text-white border-cyan-600":"bg-white text-slate-600 border-slate-200"}">⚖️ TRIAL BALANCE</button>
-          <button data-tab="profile" class="tab-btn w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left ${STATE.tab==="profile"?"bg-cyan-600 text-white border-cyan-600":"bg-white text-slate-600 border-slate-200"}">👤 PROFILE</button>
-        </div>
-        <div class="p-3 border-t text-[10px] font-bold opacity-70">
-          <div>☁️ Cloud: <b class="text-green-600">ON</b></div>
-          <div class="mt-1">👤 ${STATE.profile.full_name || STATE.profile.username}</div>
-        </div>
-      </aside>
-      <main id="main-content" class="flex-1 ml-[260px] min-w-0 flex flex-col overflow-auto"></main>
-    </div>
-  </div>`;
-}
-
-function renderMain() {
-  var main = $("main-content");
-  if (!main) return;
-  if (STATE.tab === "ledger") main.innerHTML = renderLedgerPage();
-  else if (STATE.tab === "party") main.innerHTML = renderPartyPage();
-  else if (STATE.tab === "final") main.innerHTML = renderFinalPage();
-  else if (STATE.tab === "trial") main.innerHTML = renderTrialPage();
-  else main.innerHTML = renderProfilePage();
-
-  var hb = $("header-balance");
-  if (hb) {
-    var total = STATE.ledgers.filter(function(l){return l.partyId===STATE.selectedParty;}).reduce(function(a,e){return a+e.amount;}, 0);
-    hb.textContent = "Closing Balance: " + fmt(total);
-    hb.className = "text-[18px] font-black " + (total >= 0 ? "text-green-600" : "text-red-600");
-  }
-  renderStatus();
-}
-
-function renderLedgerPage() {
-  var entries = STATE.ledgers.filter(function(l){return l.partyId===STATE.selectedParty;}).sort(function(a,b){return a.createdAt-b.createdAt;});
-  var run = 0;
-  var rows = "";
-  for (var i=0; i<entries.length; i++) {
-    var e = entries[i];
-    run += e.amount;
-    var locked = e.openingLocked || (e.remark||"").toLowerCase()==="opening" || e.finalLocked;
-    rows += '<tr class="border-t border-gray-100">';
-    rows += '<td class="py-1 px-2.5 font-mono text-[12px]">' + dmy(e.date) + ' ' + (e.time||"").slice(0,5) + '</td>';
-    rows += '<td class="py-1 px-2.5 text-[13px] font-bold">' + (e.counterPartyId||"-") + '</td>';
-    rows += '<td class="py-1 px-2.5 text-[13px]">' + (e.remark||"-") + '</td>';
-    rows += '<td class="py-1 px-2 text-right font-mono text-[13px] text-red-600">' + (e.amount<0?fmtAbs(e.amount):"-") + '</td>';
-    rows += '<td class="py-1 px-2 text-right font-mono text-[13px] text-green-600">' + (e.amount>0?fmt(e.amount):"-") + '</td>';
-    rows += '<td class="py-1 px-2 text-right font-mono text-[13px] font-black ' + (run<0?"text-red-600":"text-green-600") + '">' + fmt(run) + '</td>';
-    rows += '<td class="py-1 px-2">';
-    if (!locked) {
-      rows += '<button data-mod="' + e.id + '" class="mr-1 px-1.5 py-0.5 rounded text-[10px] font-bold border bg-yellow-50 text-yellow-700 border-cyan-200">Mod</button>';
-      rows += '<button data-del="' + e.id + '" class="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-red-50 text-red-600 border-red-200">Del</button>';
-    }
-    rows += '</td></tr>';
-  }
-  if (!rows) rows = '<tr><td colspan="7" class="p-6 text-center opacity-60">No entries</td></tr>';
-
-  var counterOpts = STATE.parties.filter(function(p){return p.id!==STATE.selectedParty && p.status==="Active";}).map(function(p){return '<option value="'+p.id+'"'+(p.id===STATE.counter?" selected":"")+'>'+p.id+'</option>';}).join("");
-
-  return `
-  <div class="p-3 flex flex-col gap-3">
-    <div class="rounded-xl border p-3 bg-white shadow-sm flex-1">
-      <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
-        <div class="font-black text-[15px]">${STATE.selectedParty} LEDGER</div>
-        ${STATE.companyName?'<div class="text-[15px] font-black text-cyan-700">'+STATE.companyName+'</div>':''}
-        <input id="search-input" placeholder="Search..." value="" class="h-8 w-[200px] rounded-lg border px-3 text-[12px]">
-      </div>
-      <div class="rounded-lg border overflow-auto" style="max-height:calc(100vh-340px)">
-        <table class="w-full border-collapse" style="font-size:13px">
-          <thead class="sticky top-0 bg-slate-100">
-            <tr>
-              <th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Date</th>
-              <th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Counter</th>
-              <th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Remark</th>
-              <th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Debit</th>
-              <th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Credit</th>
-              <th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Balance</th>
-              <th class="text-left py-1.5 px-2 text-[11px] font-black uppercase">Action</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-      <div class="mt-3 pt-3 border-t flex gap-2 items-end">
-        <div style="flex:0 0 22%">
-          <label class="text-[11px] font-black uppercase opacity-70">Counter</label>
-          <select id="counter-select" class="w-full h-10 rounded-lg border px-3 text-[13px] font-bold">${counterOpts}</select>
-        </div>
-        <div style="flex:0 0 22%">
-          <label class="text-[11px] font-black uppercase opacity-70">Amount</label>
-          <input id="amount-input" placeholder="100/200" class="w-full h-10 rounded-lg border px-3 text-[15px] font-black">
-        </div>
-        <div style="flex:1">
-          <label class="text-[11px] font-black uppercase opacity-70">Remark</label>
-          <input id="remark-input" placeholder="Pay..." class="w-full h-10 rounded-lg border px-3 text-[13px]">
-        </div>
-        <button id="btn-add" class="h-10 px-4 rounded-lg font-black text-[14px] bg-cyan-600 text-white">ADD ↵</button>
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderPartyPage() {
-  var rows = "";
-  for (var i=0; i<STATE.parties.length; i++) {
-    var p = STATE.parties[i];
-    var bal = STATE.ledgers.filter(function(l){return l.partyId===p.id;}).reduce(function(a,e){return a+e.amount;}, 0);
-    var active = p.status === "Active";
-    rows += '<div class="py-3 flex items-center justify-between border-t">';
-    rows += '<div class="flex items-center gap-3">';
-    rows += '<div class="w-10 h-10 rounded-full flex items-center justify-center font-black bg-slate-900 text-white">' + p.id[0] + '</div>';
-    rows += '<div>';
-    rows += '<div class="flex items-center gap-2"><span class="font-black text-[14px]">'+p.name+'</span>';
-    rows += '<span class="px-2 py-0.5 rounded-full text-[10px] font-black border '+(active?"bg-green-100 text-green-800":"bg-red-100 text-red-800")+'">'+p.status+'</span></div>';
-    rows += '<div class="text-[13px] font-bold font-mono '+(bal<0?"text-red-600":"text-green-600")+'">'+fmt(bal)+'</div>';
-    rows += '</div></div>';
-    rows += '<div class="flex gap-2">';
-    rows += '<button data-toggle="'+p.id+'" class="h-9 px-3 rounded-full text-[12px] font-black border '+(active?"bg-green-100 text-green-800":"bg-red-100 text-red-800")+'">'+(active?"Active":"Deactive")+'</button>';
-    rows += '<button data-edit-party="'+p.id+'" class="h-9 px-3 rounded-full text-[12px] font-black border bg-white">Modify</button>';
-    rows += '</div></div>';
-  }
-
-  return `
-  <div class="p-4 max-w-5xl mx-auto w-full flex flex-col gap-4">
-    <div class="rounded-xl border p-6 bg-white">
-      <div class="font-black text-[15px] mb-4">PARTY MANAGER ${STATE.pin?'🔒':''}</div>
-      <div class="flex gap-3">
-        <input id="new-party-name" placeholder="AA BB" class="flex-1 h-12 rounded-xl border px-4 text-[15px] font-bold">
-        <button id="btn-add-party" class="h-12 px-6 rounded-xl bg-cyan-600 text-white font-black text-[13px]">Add</button>
-      </div>
-    </div>
-    <div class="rounded-xl border p-6 bg-white">
-      <div class="font-black text-[14px] mb-3">ALL PARTIES</div>
-      ${rows}
-    </div>
-  </div>`;
-}
-
-function renderFinalPage() {
-  var rows = "";
-  if (STATE.tab === "final" && window.__finalFilter) {
-    var filterParty = window.__finalFilter;
-    var filtered = STATE.finals.filter(function(g){return g.partyId===filterParty;}).sort(function(a,b){return (a.createdAt||0)-(b.createdAt||0);});
-    var run = 0;
-    for (var i=0; i<filtered.length; i++) {
-      var g = filtered[i];
-      for (var j=0; j<g.entries.length; j++) {
-        var e = g.entries[j];
-        var isCF = e.carryForward === true;
-        if (!isCF) run += e.amount;
-        rows += '<tr class="border-t '+(isCF?"bg-amber-50":"")+'">';
-        rows += '<td class="py-1 px-2.5 font-mono text-[12px]">'+dmy(e.date)+'</td>';
-        rows += '<td class="py-1 px-2.5 font-black text-[12px]">'+filterParty+'</td>';
-        rows += '<td class="py-1 px-2.5 font-bold">'+(isCF?"B/F":(e.counterPartyId||"-"))+'</td>';
-        rows += '<td class="py-1 px-2.5">'+(isCF?"Opening":(e.remark||"-"))+'</td>';
-        rows += '<td class="py-1 px-2 text-right font-mono">'+((!isCF && e.amount<0)?fmtAbs(e.amount):"-")+'</td>';
-        rows += '<td class="py-1 px-2 text-right font-mono">'+((!isCF && e.amount>0)?fmt(e.amount):"-")+'</td>';
-        rows += '<td class="py-1 px-2 text-right font-mono font-black '+(run<0?"text-red-600":"text-green-600")+'">'+fmt(run)+'</td>';
-        rows += '</tr>';
-      }
-      rows += '<tr class="border-t bg-cyan-300 font-bold"><td class="py-1 px-2.5">'+dmy(g.closedAt)+'</td><td colspan="5" class="py-1 px-2.5 text-center">FINAL CLOSING • '+filterParty+'</td><td class="py-1 px-2 text-right font-mono">'+fmt(run)+'</td></tr>';
-    }
-  }
-
-  var partyOpts = STATE.parties.map(function(p){return '<option value="'+p.id+'">'+p.id+'</option>';}).join("");
-
-  return `
-  <div class="p-4">
-    <div class="max-w-[1150px] mx-auto">
-      <div class="flex items-center gap-2 mb-3 flex-wrap">
-        <div class="font-black text-[15px]">FINAL REPORT</div>
-        <label class="text-[12px] font-black uppercase opacity-70">Party:</label>
-        <select id="final-filter" class="h-9 rounded-lg border px-3 text-[13px] font-bold">
-          <option value="">Select Party...</option>
-          ${partyOpts}
-        </select>
-      </div>
-      <div class="rounded-lg border overflow-auto max-h-[calc(100vh-260px)] bg-white">
-        <table class="w-full">
-          <thead class="sticky top-0 bg-slate-100">
-            <tr>${["Date","Party","Counter","Remark","Debit","Credit","Balance"].map(function(hd){return '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">'+hd+'</th>';}).join("")}</tr>
-          </thead>
-          <tbody>${rows || '<tr><td colspan="7" class="p-8 text-center opacity-60">Select a party</td></tr>'}</tbody>
-        </table>
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderTrialPage() {
-  return `
-  <div class="p-4 max-w-6xl mx-auto w-full">
-    <div class="rounded-xl border p-6 bg-white text-center opacity-70">
-      Trial Balance - Yahan aapka balance summary dikhega
-    </div>
-  </div>`;
-}
-
-function renderProfilePage() {
-  return `
-  <div class="p-4 max-w-2xl mx-auto w-full flex flex-col gap-4">
-    <div class="rounded-xl border p-6 bg-white">
-      <div class="font-black text-[15px] mb-4 uppercase">👤 MY ACCOUNT</div>
-      <div class="flex items-center gap-4">
-        <div class="w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white flex items-center justify-center text-[24px] font-black">
-          ${(STATE.profile.full_name || STATE.profile.username || "?").charAt(0).toUpperCase()}
-        </div>
-        <div>
-          <div class="text-[18px] font-black">${STATE.profile.full_name || STATE.profile.username}</div>
-          <div class="text-[12px] font-bold text-slate-500 font-mono">@${STATE.profile.username}</div>
-        </div>
-      </div>
-    </div>
-    <div class="rounded-xl border p-6 bg-white">
-      <div class="font-black text-[15px] mb-4 uppercase">🔑 CHANGE PASSWORD</div>
-      <div class="space-y-3">
-        <input id="cur-pwd" type="password" placeholder="Current password" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold">
-        <input id="new-pwd" type="password" placeholder="New password (min 6)" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold">
-        <input id="cf-pwd" type="password" placeholder="Confirm new password" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold">
-        <button id="btn-change-pwd" class="w-full h-12 rounded-lg bg-cyan-600 text-white font-black">🔒 Change Password</button>
-        <div id="pwd-msg" class="text-[12px] font-bold hidden"></div>
-      </div>
-    </div>
-    <div class="rounded-xl border p-6 bg-white">
-      <div class="font-black text-[15px] mb-4 uppercase">🏢 COMPANY NAME</div>
-      <div class="flex gap-3 flex-wrap">
-        <input id="company-name-input" value="${STATE.companyName}" placeholder="Company name" class="flex-1 min-w-[240px] h-12 rounded-lg border px-4 text-[14px] font-bold">
-        <button id="btn-save-company" class="h-12 px-6 rounded-lg bg-cyan-600 text-white font-black text-[13px]">💾 Save</button>
-      </div>
-    </div>
-    <div class="rounded-xl border p-6 bg-white">
-      <div class="font-black text-[15px] mb-4 uppercase">💾 BACKUP</div>
-      <div class="flex gap-3 flex-wrap">
-        <button id="btn-backup" class="h-12 px-6 rounded-lg border bg-white font-black text-[13px]">⬇️ Backup JSON</button>
-        <button id="btn-restore" class="h-12 px-6 rounded-lg border bg-white font-black text-[13px]">⬆️ Restore</button>
-        <input id="restore-file" type="file" accept=".json" class="hidden">
-      </div>
-    </div>
-  </div>`;
-}
-
-/* ═══ BIND DASHBOARD ═══ */
-function bindDashboard() {
-  // Tabs
-  var tabBtns = document.querySelectorAll(".tab-btn");
-  for (var i=0; i<tabBtns.length; i++) {
-    tabBtns[i].onclick = function() {
+function bindDashboard(){
+  var btns = document.querySelectorAll(".tab-btn");
+  for(var i=0;i<btns.length;i++){
+    btns[i].onclick = function(){
       STATE.tab = this.getAttribute("data-tab");
       renderDashboard();
-      bindDashboard();
     };
   }
-  renderMain();
-
-  // Header party
   var hp = $("header-party");
-  if (hp) {
-    hp.onchange = function() {
+  if(hp){
+    hp.onchange = function(){
       STATE.selectedParty = this.value;
-      var alt = STATE.parties.find(function(p){return p.id!==STATE.selectedParty && p.status==="Active";});
-      if (alt) STATE.counter = alt.id;
-      saveNow();
-      renderMain();
+      for(var i=0;i<STATE.parties.length;i++){
+        if(STATE.parties[i].id!==STATE.selectedParty && STATE.parties[i].status==="Active"){
+          STATE.counter = STATE.parties[i].id; break;
+        }
+      }
+      saveNow(); renderMain();
     };
   }
-
-  // Search
-  var searchInput = $("search-input");
-  if (searchInput) {
-    searchInput.oninput = function() {
-      // simple filter - re-render
-      var s = this.value.toLowerCase();
-      var entries = STATE.ledgers.filter(function(l){return l.partyId===STATE.selectedParty;}).sort(function(a,b){return a.createdAt-b.createdAt;});
-      if (s) entries = entries.filter(function(e){return (dmy(e.date)+" "+(e.counterPartyId||"")+" "+(e.remark||"")).toLowerCase().indexOf(s)>=0;});
-      // Note: full re-render with filter is complex, skip
-    };
-  }
-
-  // Counter
-  var cs = $("counter-select");
-  if (cs) {
-    cs.onchange = function() { STATE.counter = this.value; saveNow(); };
-    cs.onkeydown = function(e) { if (e.key === "Enter") { e.preventDefault(); var a=$("amount-input"); if(a) a.focus(); } };
-  }
-
-  // Amount
-  var ai = $("amount-input");
-  if (ai) {
-    ai.oninput = function(e) { if (!/^[+\-\d.\s\/]*$/.test(this.value)) this.value = this.value.replace(/[^+\-\d.\s\/]/g, ""); };
-    ai.onkeydown = function(e) { if (e.key === "Enter") { e.preventDefault(); var r=$("remark-input"); if(r) r.focus(); } };
-  }
-
-  // Remark
-  var ri = $("remark-input");
-  if (ri) {
-    ri.onkeydown = function(e) { if (e.key === "Enter") { e.preventDefault(); doAddEntry(); } };
-  }
-
-  // Add button
-  var ba = $("btn-add");
-  if (ba) ba.onclick = doAddEntry;
-
-  // Mod / Del buttons
-  document.querySelectorAll("[data-mod]").forEach(function(btn) {
-    btn.onclick = function() { openModify(this.getAttribute("data-mod")); };
-  });
-  document.querySelectorAll("[data-del]").forEach(function(btn) {
-    btn.onclick = function() { openDelete(this.getAttribute("data-del")); };
-  });
-
-  // Add Party
-  var bap = $("btn-add-party");
-  if (bap) {
-    bap.onclick = function() {
-      var name = $("new-party-name").value.trim().toUpperCase();
-      if (!name) return alert("Enter name");
-      if (STATE.parties.some(function(p){return p.id===name;})) return alert("Exists");
-      requirePin(function() {
-        STATE.parties.push({ id: name, name: name, status: "Active" });
-        STATE.history.unshift({ id:"h_"+Date.now(), dateDisplay:dmy(today()), timeDisplay:nowT(), action:"Created", partyId:name, oldVal:"-", newVal:name, remark:"Created" });
-        saveNow();
-        renderDashboard(); bindDashboard();
-      }, "Create Party " + name);
-    };
-  }
-
-  // Toggle party
-  document.querySelectorAll("[data-toggle]").forEach(function(btn) {
-    btn.onclick = function() {
-      var pid = this.getAttribute("data-toggle");
-      var p = STATE.parties.find(function(x){return x.id===pid;});
-      var next = p.status === "Active" ? "Deactive" : "Active";
-      requirePin(function() {
-        p.status = next;
-        STATE.history.unshift({ id:"h_"+Date.now(), dateDisplay:dmy(today()), timeDisplay:nowT(), action:next, partyId:p.id, oldVal:p.status, newVal:next, remark:next });
-        saveNow();
-        renderDashboard(); bindDashboard();
-      }, "Toggle " + pid);
-    };
-  });
-
-  // Edit party
-  document.querySelectorAll("[data-edit-party]").forEach(function(btn) {
-    btn.onclick = function() {
-      var pid = this.getAttribute("data-edit-party");
-      var p = STATE.parties.find(function(x){return x.id===pid;});
-      requirePin(function() {
-        var newName = prompt("New name:", p.name);
-        if (!newName) return;
-        newName = newName.trim().toUpperCase();
-        if (newName === p.id) return;
-        if (STATE.parties.some(function(x){return x.id===newName;})) return alert("Exists");
-        var old = p.id;
-        p.id = newName; p.name = newName;
-        STATE.ledgers.forEach(function(l) {
-          if (l.partyId === old) l.partyId = newName;
-          if (l.counterPartyId === old) l.counterPartyId = newName;
-        });
-        if (STATE.selectedParty === old) STATE.selectedParty = newName;
-        if (STATE.counter === old) STATE.counter = newName;
-        saveNow();
-        renderDashboard(); bindDashboard();
-      }, "Modify Party");
-    };
-  });
-
-  // FINAL button
-  var bf = $("btn-final");
-  if (bf) {
-    bf.onclick = function() {
-      requirePin(function() {
-        if (!confirm("FINAL Closing for " + STATE.selectedParty + "?")) return;
-        doFinalClose();
-      }, "FINAL Closing");
-    };
-  }
-
-  // Export
-  var be = $("btn-export");
-  if (be) be.onclick = exportCSV;
-
-  // Logout
-  var bl = $("btn-logout");
-  if (bl) bl.onclick = doLogout;
-
-  // Save company name
-  var bsc = $("btn-save-company");
-  if (bsc) {
-    bsc.onclick = function() {
-      var n = $("company-name-input").value.trim();
-      if (n === STATE.companyName) return alert("No change");
-      requirePin(function() {
-        STATE.companyName = n; saveNow();
-        alert("Saved");
-        renderDashboard(); bindDashboard();
-      }, "Company Name");
-    };
-  }
-
-  // Change password
-  var bcp = $("btn-change-pwd");
-  if (bcp) {
-    bcp.onclick = function() {
-      var cur = $("cur-pwd").value, nw = $("new-pwd").value, cf = $("cf-pwd").value;
-      var msg = $("pwd-msg");
-      msg.classList.add("hidden");
-      if (!cur) { msg.textContent="Current password required"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-      if (!nw || nw.length<6) { msg.textContent="New password min 6"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-      if (nw !== cf) { msg.textContent="Passwords don't match"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-      sb.auth.getUser().then(function(r) {
-        if (!r.data.user) return;
-        sb.auth.signInWithPassword({ email: r.data.user.email, password: cur }).then(function(vr) {
-          if (vr.error) { msg.textContent="Current password wrong"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-          sb.auth.updateUser({ password: nw }).then(function(ur) {
-            if (ur.error) { msg.textContent = ur.error.message; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-            msg.textContent="✅ Password changed!"; msg.className="text-[12px] font-bold text-green-600"; msg.classList.remove("hidden");
-            $("cur-pwd").value=""; $("new-pwd").value=""; $("cf-pwd").value="";
-          });
-        });
-      });
-    };
-  }
-
-  // Backup
-  var bb = $("btn-backup");
-  if (bb) {
-    bb.onclick = function() {
-      requirePin(function() {
-        var data = { parties: STATE.parties, ledgers: STATE.ledgers, finals: STATE.finals, pin: STATE.pin, companyName: STATE.companyName, history: STATE.history };
-        downloadBlob(new Blob([JSON.stringify(data, null, 2)], {type:"application/json"}), "backup_" + today() + ".json");
-        STATE.lastBackup = Date.now();
-        saveNow();
-      }, "Backup");
-    };
-  }
-
-  var br = $("btn-restore");
-  if (br) br.onclick = function() { $("restore-file").click(); };
-
-  var rf = $("restore-file");
-  if (rf) {
-    rf.onchange = function(e) {
-      var f = e.target.files[0]; if (!f) return;
-      e.target.value = "";
-      requirePin(function() {
-        var r = new FileReader();
-        r.onload = function() {
-          try {
-            var d = JSON.parse(r.result);
-            if (d.parties) STATE.parties = d.parties;
-            if (d.ledgers) STATE.ledgers = d.ledgers;
-            if (d.finals) STATE.finals = d.finals;
-            if (d.pin) STATE.pin = d.pin;
-            if (d.companyName !== undefined) STATE.companyName = d.companyName || "";
-            if (d.history) STATE.history = d.history;
-            saveNow();
-            alert("Restore OK");
-            renderDashboard(); bindDashboard();
-          } catch(ex) { alert("Invalid file"); }
-        };
-        r.readAsText(f);
-      }, "Restore");
-    };
-  }
-
-  // Final filter
-  var ff = $("final-filter");
-  if (ff) {
-    if (window.__finalFilter) ff.value = window.__finalFilter;
-    ff.onchange = function() {
-      window.__finalFilter = this.value;
-      renderMain();
-      bindDashboard();
-    };
-  }
-}
-
-/* ═══ ACTIONS ═══ */
-function doAddEntry() {
-  var amtEl = $("amount-input");
-  var remEl = $("remark-input");
-  if (!amtEl || !remEl) return;
-
-  var parts = amtEl.value.split("/");
-  var nums = [];
-  for (var i=0; i<parts.length; i++) {
-    var n = parseFloat(parts[i].trim());
-    if (!isNaN(n) && n !== 0) nums.push(n);
-  }
-  if (nums.length === 0) return alert("Enter amount");
-  if (STATE.selectedParty === STATE.counter) return alert("Same party not allowed");
-
-  var t = Date.now();
-  var date = today();
-  var time = nowT();
-
-  for (var j=0; j<nums.length; j++) {
-    var n = nums[j];
-    var pid = "pair_" + t + "_" + j;
-    STATE.ledgers.push({ id:"e_"+t+"_"+j+"_a", pairId:pid, date:date, time:time, partyId:STATE.selectedParty, counterPartyId:STATE.counter, amount:n, remark:remEl.value.trim(), createdAt:t+j*2 });
-    STATE.ledgers.push({ id:"e_"+t+"_"+j+"_b", pairId:pid, date:date, time:time, partyId:STATE.counter, counterPartyId:STATE.selectedParty, amount:-n, remark:remEl.value.trim(), createdAt:t+j*2+1 });
-  }
-
-  amtEl.value = "";
-  remEl.value = "";
-
-  saveNow();
+  var bl = $("btn-logout"); if(bl) bl.onclick = doLogout;
+  var be = $("btn-export"); if(be) be.onclick = exportCSV;
   renderMain();
-  bindDashboard();
-  setTimeout(function() {
-    var a = $("amount-input"); if (a) a.focus();
-    var c = $("counter-select"); if (c) c.focus();
-  }, 50);
 }
 
-function openModify(entryId) {
-  var e = STATE.ledgers.find(function(x){return x.id===entryId;});
-  if (!e) return;
-  if (e.openingLocked || (e.remark||"").toLowerCase()==="opening" || e.finalLocked) return alert("Locked");
-  var newAmt = prompt("New amount:", String(e.amount));
-  if (newAmt === null) return;
-  var amt = parseFloat(newAmt);
-  if (isNaN(amt) || amt === 0) return alert("Invalid amount");
-  var newRemark = prompt("New remark:", e.remark || "");
-  if (newRemark === null) return;
+function renderMain(){
+  var m = $("main-content"); if(!m) return;
+  if(STATE.tab==="ledger") m.innerHTML = renderLedger();
+  else if(STATE.tab==="party") m.innerHTML = renderParty();
+  else if(STATE.tab==="final") m.innerHTML = renderFinal();
+  else if(STATE.tab==="trial") m.innerHTML = renderTrial();
+  else m.innerHTML = renderProfile();
 
-  STATE.ledgers.forEach(function(x) {
-    if (x.pairId !== e.pairId) return;
-    if (x.openingLocked || (x.remark||"").toLowerCase()==="opening" || x.finalLocked) return;
-    if (x.partyId === e.partyId) {
-      x.amount = amt;
-      x.remark = newRemark.trim();
-    } else {
-      x.amount = -amt;
-      x.remark = newRemark.trim();
-    }
-  });
-
-  saveNow();
-  renderMain();
-  bindDashboard();
+  var hb = $("header-balance");
+  if(hb){
+    var t = 0;
+    for(var i=0;i<STATE.ledgers.length;i++) if(STATE.ledgers[i].partyId===STATE.selectedParty) t += STATE.ledgers[i].amount;
+    hb.textContent = "Closing Balance: "+fmt(t);
+    hb.className = "text-[18px] font-black "+(t>=0?"text-green-600":"text-red-600");
+  }
+  renderStatus();
+  bindMain();
 }
 
-function openDelete(entryId) {
-  var e = STATE.ledgers.find(function(x){return x.id===entryId;});
-  if (!e) return;
-  if (e.openingLocked || (e.remark||"").toLowerCase()==="opening" || e.finalLocked) return alert("Locked");
-  if (!confirm("Delete from both sides?")) return;
+/* ========== LEDGER PAGE ========== */
+function renderLedger(){
+  var T = THEMES[STATE.theme] || THEMES.ocean;
+  var entries = [];
+  for(var i=0;i<STATE.ledgers.length;i++) if(STATE.ledgers[i].partyId===STATE.selectedParty) entries.push(STATE.ledgers[i]);
+  entries.sort(function(a,b){ return a.createdAt-b.createdAt; });
 
-  STATE.ledgers = STATE.ledgers.filter(function(x) {
-    if (x.openingLocked || (x.remark||"").toLowerCase()==="opening" || x.finalLocked) return true;
-    if (x.pairId && e.pairId) return x.pairId !== e.pairId;
-    return x.id !== e.id;
-  });
-
-  saveNow();
-  renderMain();
-  bindDashboard();
-}
-
-function doFinalClose() {
-  var entries = STATE.ledgers.filter(function(l){return l.partyId===STATE.selectedParty;}).sort(function(a,b){return a.createdAt-b.createdAt;});
-  var balance = entries.reduce(function(a,e){return a+e.amount;}, 0);
-  var t = Date.now();
-  var counterEntries = STATE.ledgers.filter(function(l) {
-    return l.counterPartyId === STATE.selectedParty && !l.openingLocked && (l.remark||"").toLowerCase() !== "opening" && !l.finalLocked;
-  });
-  var newFinal = { id:"final_"+t, partyId:STATE.selectedParty, closedAt:today(), entries:entries, counterEntries:counterEntries, balance:balance, createdAt:t };
-  STATE.finals.push(newFinal);
-
-  var cps = {};
-  counterEntries.forEach(function(e){ cps[e.pairId] = true; });
-
-  STATE.ledgers = STATE.ledgers.filter(function(l){ return l.partyId !== STATE.selectedParty; }).map(function(l) {
-    if (cps[l.pairId]) { l.finalLocked = true; }
-    return l;
-  });
-  STATE.ledgers.push({ id:"open_"+t, pairId:"opening_"+t, date:today(), time:nowT(), partyId:STATE.selectedParty, counterPartyId:"", amount:balance, remark:"Opening", createdAt:t+5, openingLocked:true, carryForward:true });
-
-  saveNow();
-  renderMain();
-  bindDashboard();
-}
-
-function doLogout() {
-  saveLocal();
-  if (STATE.companyId && STATE.session) {
-    sb.from("company_state").upsert({
-      company_id: STATE.companyId, state: buildSnap(),
-      updated_at: new Date().toISOString(), updated_by: STATE.session.user.id
-    }, { onConflict: "company_id" }).then(function() {
-      sb.auth.signOut();
+  var filtered = entries;
+  if(STATE.search.trim()){
+    var s = STATE.search.toLowerCase();
+    filtered = entries.filter(function(e){
+      return (dmy(e.date)+" "+(e.counterPartyId||"")+" "+(e.remark||"")+" "+e.amount).toLowerCase().indexOf(s)>=0;
     });
+  }
+
+  var rows = "";
+  var run = 0;
+  for(var j=0;j<filtered.length;j++){
+    var e = filtered[j];
+    run += e.amount;
+    var locked = e.openingLocked || ((e.remark||"").toLowerCase()==="opening") || e.finalLocked;
+    rows += '<tr class="border-t border-gray-100">';
+    if(STATE.showCols.date) rows += '<td class="py-1 px-2.5 font-mono text-[12px]">'+dmy(e.date)+' <span class="ml-1 text-[10px] opacity-60">'+(e.time||"").slice(0,5)+'</span></td>';
+    if(STATE.showCols.counter) rows += '<td class="py-1 px-2.5 text-[13px] font-bold">'+esc(e.counterPartyId||"-")+'</td>';
+    if(STATE.showCols.remark) rows += '<td class="py-1 px-2.5 text-[13px]">'+esc(e.remark||"-")+'</td>';
+    if(STATE.showCols.debit) rows += '<td class="py-1 px-2 text-right font-mono text-[13px] '+(e.amount<0?"text-red-600":"text-gray-300")+'">'+(e.amount<0?fmtAbs(e.amount):"-")+'</td>';
+    if(STATE.showCols.credit) rows += '<td class="py-1 px-2 text-right font-mono text-[13px] '+(e.amount>0?"text-green-600":"text-gray-300")+'">'+(e.amount>0?fmt(e.amount):"-")+'</td>';
+    if(STATE.showCols.balance) rows += '<td class="py-1 px-2 text-right font-mono text-[13px] font-black '+(run<0?"text-red-600":"text-green-600")+'">'+fmt(run)+'</td>';
+    if(STATE.showCols.action){
+      rows += '<td class="py-1 px-2">';
+      if(!locked){
+        rows += '<button data-mod="'+e.id+'" class="mr-1 px-1.5 py-0.5 rounded text-[10px] font-bold border bg-yellow-50 text-yellow-700 border-yellow-200">Mod</button>';
+        rows += '<button data-del="'+e.id+'" class="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-red-50 text-red-600 border-red-200">Del</button>';
+      } else rows += '<span class="text-[10px] text-gray-400">Locked</span>';
+      rows += '</td>';
+    }
+    rows += '</tr>';
+  }
+  if(!rows) rows = '<tr><td colspan="7" class="p-6 text-center opacity-60">No entries</td></tr>';
+
+  var counterOpts = "";
+  for(var k=0;k<STATE.parties.length;k++){
+    var p = STATE.parties[k];
+    if(p.id===STATE.selectedParty) continue;
+    if(p.status!=="Active") continue;
+    counterOpts += '<option value="'+esc(p.id)+'"'+(p.id===STATE.counter?" selected":"")+'>'+esc(p.id)+'</option>';
+  }
+
+  var comp = STATE.companyName ? '<div class="flex-1 text-center"><div class="text-[16px] font-black tracking-tight text-cyan-700">'+esc(STATE.companyName)+'</div></div>' : '<div class="flex-1"></div>';
+
+  var colOpts = "";
+  var colKeys = ["date","counter","remark","debit","credit","balance","action"];
+  for(var c=0;c<colKeys.length;c++){
+    var key = colKeys[c];
+    var v = STATE.showCols[key];
+    colOpts += '<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 cursor-pointer text-[13px]">'+
+      '<input type="checkbox" data-col="'+key+'"'+(v?" checked":"")+'><span class="'+(v?"":"opacity-40 line-through")+'">'+key+'</span></label>';
+  }
+
+  var deactive = STATE.parties.find(function(p){ return p.id===STATE.selectedParty && p.status!=="Active"; });
+
+  return ''+
+  '<div class="p-2 h-[calc(100vh-64px)] flex flex-col">'+
+    '<div class="rounded-xl border p-3 flex-1 flex flex-col min-h-0 '+T.card+'">'+
+      '<div class="flex items-center justify-between mb-3 flex-wrap gap-2">'+
+        '<div class="flex items-center gap-3 shrink-0"><div class="font-black text-[15px]">'+STATE.selectedParty+' LEDGER</div>'+(deactive?'<span class="ml-2 px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 text-[10px] font-black">DEACTIVE</span>':'')+'</div>'+
+        comp +
+        '<div class="flex gap-2 items-center shrink-0">'+
+          '<button id="btn-fr" class="h-8 px-3 rounded-lg border text-[12px] font-black" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1">FR</button>'+
+          '<input id="search-ledger" value="'+esc(STATE.search)+'" placeholder="Search..." class="h-8 w-[200px] rounded-lg border px-3 text-[12px] '+T.input+'">'+
+          '<button id="btn-cols" class="h-8 px-3 rounded-lg border text-[12px] font-bold">Columns</button>'+
+        '</div>'+
+      '</div>'+
+      (STATE.showColDrop ? '<div class="absolute right-4 top-24 w-56 rounded-xl border shadow-2xl z-40 p-2 '+T.card+'">'+colOpts+'</div>' : '')+
+      '<div class="rounded-lg border overflow-auto flex-1 min-h-0">'+
+        '<table class="w-full border-collapse" style="font-size:13px">'+
+          '<thead class="sticky top-0 '+T.tblHeader+'"><tr>'+
+            (STATE.showCols.date?'<th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Date</th>':'')+
+            (STATE.showCols.counter?'<th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Counter</th>':'')+
+            (STATE.showCols.remark?'<th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Remark</th>':'')+
+            (STATE.showCols.debit?'<th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Debit</th>':'')+
+            (STATE.showCols.credit?'<th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Credit</th>':'')+
+            (STATE.showCols.balance?'<th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Balance</th>':'')+
+            (STATE.showCols.action?'<th class="text-left py-1.5 px-2 text-[11px] font-black uppercase">Action</th>':'')+
+          '</tr></thead>'+
+          '<tbody>'+rows+'</tbody>'+
+        '</table>'+
+      '</div>'+
+      '<div class="mt-3 pt-3 border-t flex gap-2 items-end">'+
+        '<div style="flex:0 0 22%"><label class="text-[11px] font-black uppercase opacity-70">Counter</label>'+
+        '<select id="counter-select" class="w-full h-10 rounded-lg border px-3 text-[13px] font-bold '+T.input+'">'+counterOpts+'</select></div>'+
+        '<div style="flex:0 0 22%"><label class="text-[11px] font-black uppercase opacity-70">Amount</label>'+
+        '<input id="amount-input" placeholder="100/200" class="w-full h-10 rounded-lg border px-3 text-[15px] font-black '+T.input+'"></div>'+
+        '<div style="flex:1"><label class="text-[11px] font-black uppercase opacity-70">Remark</label>'+
+        '<input id="remark-input" placeholder="Pay..." class="w-full h-10 rounded-lg border px-3 text-[13px] '+T.input+'"></div>'+
+        '<button id="btn-add" class="h-10 px-4 rounded-lg font-black text-[14px] '+T.addBtn+'">ADD</button>'+
+      '</div>'+
+    '</div>'+
+  '</div>';
+}
+
+/* ========== PARTY PAGE ========== */
+function renderParty(){
+  var T = THEMES[STATE.theme] || THEMES.ocean;
+  var rows = "";
+  for(var i=0;i<STATE.parties.length;i++){
+    var p = STATE.parties[i];
+    var bal = 0;
+    for(var j=0;j<STATE.ledgers.length;j++) if(STATE.ledgers[j].partyId===p.id) bal += STATE.ledgers[j].amount;
+    var active = p.status==="Active";
+    var frCount = 0;
+    for(var f=0;f<STATE.finals.length;f++) if(STATE.finals[f].partyId===p.id) frCount++;
+    rows += '<div class="py-3 flex items-center justify-between border-t">'+
+      '<div class="flex items-center gap-3">'+
+        '<div class="w-10 h-10 rounded-full flex items-center justify-center font-black '+T.logo+'">'+esc(p.id[0])+'</div>'+
+        '<div>'+
+          '<div class="flex items-center gap-2">'+
+            '<span class="font-black text-[14px]">'+esc(p.name)+'</span>'+
+            '<span class="px-2 py-0.5 rounded-full text-[10px] font-black border '+(active?"bg-green-100 text-green-800":"bg-red-100 text-red-800")+'">'+p.status+'</span>'+
+            (frCount>0?'<span class="px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200 text-[10px] font-black">FR</span>':'')+
+          '</div>'+
+          '<div class="text-[13px] font-bold font-mono '+(bal<0?"text-red-600":"text-green-600")+'">'+fmt(bal)+'</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="flex gap-2">'+
+        '<button data-toggle="'+esc(p.id)+'" class="h-9 px-3 rounded-full text-[12px] font-black border '+(active?"bg-green-100 text-green-800":"bg-red-100 text-red-800")+'">'+(active?"Active":"Deactive")+'</button>'+
+        '<button data-edit-party="'+esc(p.id)+'" class="h-9 px-3 rounded-full text-[12px] font-black border '+T.exportBtnAlt+'">Modify</button>'+
+      '</div>'+
+    '</div>';
+  }
+  var pin = STATE.pin ? ' 🔒' : '';
+  return '<div class="p-4 max-w-5xl mx-auto w-full flex flex-col gap-4">'+
+    '<div class="rounded-xl border p-6 '+T.card+'">'+
+      '<div class="font-black text-[15px] mb-4">PARTY MANAGER'+pin+'</div>'+
+      '<div class="flex gap-3">'+
+        '<input id="new-party-name" placeholder="AA BB" class="flex-1 h-14 rounded-xl border px-4 text-[15px] font-bold '+T.input+'">'+
+        '<button id="btn-add-party" class="h-14 w-24 rounded-xl text-[14px] font-black '+T.addBtn+'">Add</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="rounded-xl border p-6 '+T.card+'">'+
+      '<div class="flex justify-between mb-4">'+
+        '<div class="font-black text-[14px]">ALL PARTIES</div>'+
+        '<button id="btn-history" class="h-9 px-4 rounded-full text-[12px] font-black border '+T.exportBtnAlt+'">History</button>'+
+      '</div>'+
+      rows+
+    '</div>'+
+  '</div>';
+}
+
+/* ========== FINAL PAGE ========== */
+function renderFinal(){
+  var T = THEMES[STATE.theme] || THEMES.ocean;
+  var popts = '<option value="">Select Party...</option>';
+  for(var i=0;i<STATE.parties.length;i++) popts += '<option value="'+esc(STATE.parties[i].id)+'"'+(STATE.parties[i].id===STATE.finalFilter?" selected":"")+'>'+esc(STATE.parties[i].id)+'</option>';
+  var rows = "";
+  if(STATE.finalFilter){
+    var filtered = STATE.finals.filter(function(g){ return g.partyId===STATE.finalFilter; });
+    filtered.sort(function(a,b){ return (a.createdAt||0)-(b.createdAt||0); });
+    var run = 0;
+    for(var j=0;j<filtered.length;j++){
+      var g = filtered[j];
+      for(var m=0;m<g.entries.length;m++){
+        var e = g.entries[m];
+        var isCF = e.carryForward===true;
+        if(!isCF) run += e.amount;
+        var cls = "border-t"+(isCF?" bg-amber-50":"");
+        rows += '<tr class="'+cls+'">'+
+          '<td class="py-1 px-2.5 font-mono text-[12px]">'+dmy(e.date)+'</td>'+
+          '<td class="py-1 px-2.5 font-black text-[12px]"><span class="px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-800 border border-slate-300 text-[10px]">'+esc(STATE.finalFilter)+'</span></td>'+
+          '<td class="py-1 px-2.5 font-bold">'+esc(isCF?"B/F":(e.counterPartyId||"-"))+'</td>'+
+          '<td class="py-1 px-2.5">'+esc(isCF?"Opening":(e.remark||"-"))+'</td>'+
+          '<td class="py-1 px-2 text-right font-mono">'+((!isCF&&e.amount<0)?fmtAbs(e.amount):"-")+'</td>'+
+          '<td class="py-1 px-2 text-right font-mono">'+((!isCF&&e.amount>0)?fmt(e.amount):"-")+'</td>'+
+          '<td class="py-1 px-2 text-right font-mono font-black '+(run<0?"text-red-600":"text-green-600")+'">'+fmt(run)+'</td>'+
+        '</tr>';
+      }
+      rows += '<tr class="border-t bg-cyan-300 font-bold">'+
+        '<td class="py-1 px-2.5">'+dmy(g.closedAt)+'</td>'+
+        '<td colspan="5" class="py-1 px-2.5 text-center">FINAL CLOSING - '+esc(STATE.finalFilter)+'</td>'+
+        '<td class="py-1 px-2 text-right font-mono">'+fmt(run)+'</td>'+
+      '</tr>';
+    }
+  }
+  if(!rows) rows = '<tr><td colspan="7" class="p-8 text-center opacity-60">Select a party</td></tr>';
+
+  return '<div class="p-4"><div class="max-w-[1150px] mx-auto">'+
+    '<div class="flex items-center gap-2 mb-3 flex-wrap">'+
+      '<div class="font-black text-[15px]">FINAL REPORT</div>'+
+      '<label class="text-[12px] font-black uppercase opacity-70">Party:</label>'+
+      '<select id="final-filter" class="h-9 rounded-lg border px-3 text-[13px] font-bold '+T.input+'">'+popts+'</select>'+
+    '</div>'+
+    '<div class="rounded-lg border overflow-auto bg-white" style="max-height:calc(100vh-260px)">'+
+      '<table class="w-full"><thead class="sticky top-0 '+T.tblHeader+'"><tr>'+
+        '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Date</th>'+
+        '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Party</th>'+
+        '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Counter</th>'+
+        '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Remark</th>'+
+        '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Debit</th>'+
+        '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Credit</th>'+
+        '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Balance</th>'+
+      '</tr></thead><tbody>'+rows+'</tbody></table>'+
+    '</div>'+
+  '</div></div>';
+}
+
+/* ========== TRIAL PAGE ========== */
+function renderTrial(){
+  var T = THEMES[STATE.theme] || THEMES.ocean;
+  var dp = [], cp = [], dt = 0, ct = 0;
+  for(var i=0;i<STATE.parties.length;i++){
+    var p = STATE.parties[i];
+    if(p.status!=="Active") continue;
+    var bal = 0;
+    for(var j=0;j<STATE.ledgers.length;j++) if(STATE.ledgers[j].partyId===p.id) bal += STATE.ledgers[j].amount;
+    if(bal<0){ dp.push({party:p,bal:bal}); dt += Math.abs(bal); }
+    else if(bal>0){ cp.push({party:p,bal:bal}); ct += bal; }
+  }
+  var diff = ct - dt;
+  var statusText = diff===0 ? "BALANCED" : (diff>0 ? "CREDIT EXCESS "+Math.abs(diff).toLocaleString("en-IN") : "DEBIT EXCESS "+Math.abs(diff).toLocaleString("en-IN"));
+  var dpHtml = dp.length===0 ? '<div class="text-center py-8 opacity-60 text-[13px]">No debit parties</div>' :
+    dp.map(function(x){ return '<div class="flex justify-between items-center h-12 px-4 rounded-xl border border-red-100"><span class="font-black text-[14px]">'+esc(x.party.id)+'</span><span class="font-mono font-black text-red-600 text-[14px]">'+fmt(x.bal)+'</span></div>'; }).join("");
+  var cpHtml = cp.length===0 ? '<div class="text-center py-8 opacity-60 text-[13px]">No credit parties</div>' :
+    cp.map(function(x){ return '<div class="flex justify-between items-center h-12 px-4 rounded-xl border border-green-100"><span class="font-black text-[14px]">'+esc(x.party.id)+'</span><span class="font-mono font-black text-green-600 text-[14px]">'+fmt(x.bal)+'</span></div>'; }).join("");
+
+  return '<div class="p-4 max-w-6xl mx-auto w-full flex flex-col gap-4">'+
+    '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">'+
+      '<div class="rounded-xl border p-6 bg-red-50 border-red-200"><div class="text-[12px] font-black text-red-800 uppercase">TOTAL DEBIT</div><div class="text-[22px] font-black text-red-600">'+fmtAbs(dt)+'</div><div class="text-[12px] font-bold text-red-600">'+dp.length+' parties</div></div>'+
+      '<div class="rounded-xl border p-6 bg-green-50 border-green-200"><div class="text-[12px] font-black text-green-800 uppercase">TOTAL CREDIT</div><div class="text-[22px] font-black text-green-600">'+fmt(ct)+'</div><div class="text-[12px] font-bold text-green-600">'+cp.length+' parties</div></div>'+
+      '<div class="rounded-xl border p-6 bg-cyan-50 border-cyan-200"><div class="text-[12px] font-black text-cyan-800 uppercase">DIFFERENCE</div><div class="text-[22px] font-black text-cyan-700">'+fmtAbs(diff)+'</div></div>'+
+      '<div class="rounded-xl border p-6 bg-gray-900 text-white border-gray-900"><div class="text-[12px] font-black opacity-70 uppercase">STATUS</div><div class="text-[18px] font-black">'+statusText+'</div></div>'+
+    '</div>'+
+    '<div class="grid md:grid-cols-2 gap-4">'+
+      '<div class="rounded-xl border overflow-hidden '+T.card+'"><div class="p-4 font-black text-[14px] border-b uppercase">DEBIT SECTION</div><div class="p-4 space-y-2">'+dpHtml+'</div></div>'+
+      '<div class="rounded-xl border overflow-hidden '+T.card+'"><div class="p-4 font-black text-[14px] border-b uppercase">CREDIT SECTION</div><div class="p-4 space-y-2">'+cpHtml+'</div></div>'+
+    '</div>'+
+  '</div>';
+}
+
+/* ========== PROFILE PAGE ========== */
+function renderProfile(){
+  var T = THEMES[STATE.theme] || THEMES.ocean;
+  var user = esc(STATE.profile.full_name || STATE.profile.username);
+  var initial = (user||"?").charAt(0).toUpperCase();
+  var pinSec = "";
+  if(STATE.pin){
+    pinSec = '<div class="flex gap-3 items-center flex-wrap"><span class="px-4 py-2 rounded-lg border bg-green-50 text-green-800 text-[13px] font-black tracking-widest">PIN: '+"●".repeat(STATE.pin.length)+'</span>'+
+      '<button id="btn-remove-pin" class="h-10 px-4 rounded-lg bg-red-100 text-red-700 border border-red-300 text-[12px] font-black">Remove PIN</button></div>';
   } else {
-    sb.auth.signOut();
+    pinSec = '<div class="flex flex-col gap-3"><div class="text-[12px] font-semibold opacity-70">Set a PIN to protect: FINAL, Party, Company Name, Backup</div>'+
+      '<div class="flex gap-3 items-center flex-wrap"><input id="pin-input" type="password" maxlength="6" placeholder="Enter 4-6 digit PIN" class="h-12 rounded-lg border px-4 text-[14px] font-bold w-[220px] tracking-widest '+T.input+'">'+
+      '<button id="btn-set-pin" class="h-12 px-6 rounded-lg text-[13px] font-black '+T.addBtn+'">Set PIN</button></div></div>';
+  }
+  var themeBtns = "";
+  for(var k in THEMES){
+    var t = THEMES[k];
+    themeBtns += '<button data-theme="'+k+'" class="h-16 rounded-xl border flex items-center justify-between px-5 '+t.card+(STATE.theme===k?" ring-2 ring-cyan-500":"")+'">'+
+      '<span class="font-black text-[14px]">'+t.label+'</span>'+
+      (STATE.theme===k?'<span class="text-[11px] font-black px-2 py-0.5 rounded-full bg-black text-white">ACTIVE</span>':'')+'</button>';
+  }
+  return '<div class="p-4 max-w-2xl mx-auto w-full flex flex-col gap-4">'+
+    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">MY ACCOUNT</div>'+
+      '<div class="flex items-center gap-4">'+
+        '<div class="w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white flex items-center justify-center text-[24px] font-black">'+initial+'</div>'+
+        '<div><div class="text-[18px] font-black">'+user+'</div><div class="text-[12px] font-bold text-slate-500 font-mono">@'+esc(STATE.profile.username)+'</div></div>'+
+      '</div></div>'+
+    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">CHANGE PASSWORD</div>'+
+      '<div class="space-y-3">'+
+        '<input id="cur-pwd" type="password" placeholder="Current password" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold '+T.input+'">'+
+        '<input id="new-pwd" type="password" placeholder="New password (min 6)" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold '+T.input+'">'+
+        '<input id="cf-pwd" type="password" placeholder="Confirm new password" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold '+T.input+'">'+
+        '<button id="btn-change-pwd" class="w-full h-12 rounded-lg '+T.addBtn+' font-black">Change Password</button>'+
+        '<div id="pwd-msg" class="text-[12px] font-bold hidden"></div>'+
+      '</div></div>'+
+    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">COMPANY NAME</div>'+
+      '<div class="flex gap-3 flex-wrap">'+
+        '<input id="company-name-input" value="'+esc(STATE.companyName)+'" placeholder="Company name" class="flex-1 min-w-[240px] h-12 rounded-lg border px-4 text-[14px] font-bold '+T.input+'">'+
+        '<button id="btn-save-company" class="h-12 px-6 rounded-lg '+T.addBtn+' font-black text-[13px]">Save</button>'+
+      '</div></div>'+
+    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">THEME</div>'+
+      '<div class="grid grid-cols-2 gap-4">'+themeBtns+'</div></div>'+
+    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">PIN SECURITY</div>'+pinSec+'</div>'+
+    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">BACKUP</div>'+
+      '<div class="flex gap-3 flex-wrap">'+
+        '<button id="btn-backup" class="h-12 px-6 rounded-lg border '+T.exportBtnAlt+' font-black text-[13px]">Backup JSON</button>'+
+        '<button id="btn-restore" class="h-12 px-6 rounded-lg border '+T.exportBtnAlt+' font-black text-[13px]">Restore</button>'+
+        '<input id="restore-file" type="file" accept=".json" class="hidden">'+
+      '</div></div>'+
+  '</div>';
+}
+
+/* ========== BIND MAIN ========== */
+function bindMain(){
+  var cs = $("counter-select");
+  if(cs){
+    cs.onchange = function(){ STATE.counter = this.value; saveNow(); };
+    cs.onkeydown = function(e){ if(e.key==="Enter"){ e.preventDefault(); var a=$("amount-input"); if(a) a.focus(); } };
+  }
+  var ai = $("amount-input");
+  if(ai){
+    ai.oninput = function(){ if(!/^[+\-\d.\s\/]*$/.test(this.value)) this.value = this.value.replace(/[^+\-\d.\s\/]/g,""); };
+    ai.onkeydown = function(e){ if(e.key==="Enter"){ e.preventDefault(); var r=$("remark-input"); if(r) r.focus(); } };
+  }
+  var ri = $("remark-input");
+  if(ri){
+    ri.onkeydown = function(e){ if(e.key==="Enter"){ e.preventDefault(); doAddEntry(); } };
+  }
+  var ba = $("btn-add"); if(ba) ba.onclick = doAddEntry;
+  var sl = $("search-ledger");
+  if(sl){
+    sl.oninput = function(){ STATE.search = this.value; var save = this.value; renderMain(); var x=$("search-ledger"); if(x){ x.value=save; x.focus(); } };
+  }
+  var bfr = $("btn-fr"); if(bfr) bfr.onclick = function(){ STATE.frOpen = true; showFRModal(); };
+  var bc = $("btn-cols");
+  if(bc) bc.onclick = function(){ STATE.showColDrop = !STATE.showColDrop; renderMain(); };
+
+  var modBtns = document.querySelectorAll("[data-mod]");
+  for(var i=0;i<modBtns.length;i++) modBtns[i].onclick = function(){ openModify(this.getAttribute("data-mod")); };
+  var delBtns = document.querySelectorAll("[data-del]");
+  for(var j=0;j<delBtns.length;j++) delBtns[j].onclick = function(){ openDelete(this.getAttribute("data-del")); };
+
+  var bap = $("btn-add-party");
+  if(bap) bap.onclick = addParty;
+  var bh = $("btn-history");
+  if(bh) bh.onclick = function(){ STATE.historyOpen = true; showHistoryModal(); };
+
+  var togs = document.querySelectorAll("[data-toggle]");
+  for(var k=0;k<togs.length;k++) togs[k].onclick = function(){ toggleActive(this.getAttribute("data-toggle")); };
+  var edits = document.querySelectorAll("[data-edit-party]");
+  for(var m=0;m<edits.length;m++) edits[m].onclick = function(){ editParty(this.getAttribute("data-edit-party")); };
+
+  var ff = $("final-filter");
+  if(ff) ff.onchange = function(){ STATE.finalFilter = this.value; renderMain(); };
+
+  var bcp = $("btn-change-pwd");
+  if(bcp) bcp.onclick = changePassword;
+  var bsc = $("btn-save-company");
+  if(bsc) bsc.onclick = saveCompanyName;
+  var bsp = $("btn-set-pin");
+  if(bsp) bsp.onclick = setPin;
+  var brp = $("btn-remove-pin");
+  if(brp) brp.onclick = function(){ requirePin(function(){ STATE.pin=""; saveNow(); alert("PIN removed"); renderMain(); }, "Remove PIN"); };
+  var bb = $("btn-backup");
+  if(bb) bb.onclick = function(){ requirePin(backupJSON, "Backup"); };
+  var br = $("btn-restore");
+  if(br) br.onclick = function(){ $("restore-file").click(); };
+  var rf = $("restore-file");
+  if(rf) rf.onchange = restoreFile;
+
+  var themeBtns = document.querySelectorAll("[data-theme]");
+  for(var n=0;n<themeBtns.length;n++){
+    themeBtns[n].onclick = function(){
+      STATE.theme = this.getAttribute("data-theme");
+      saveNow();
+      renderDashboard();
+    };
+  }
+  var colChecks = document.querySelectorAll("[data-col]");
+  for(var c=0;c<colChecks.length;c++){
+    colChecks[c].onchange = function(){
+      var key = this.getAttribute("data-col");
+      STATE.showCols[key] = !STATE.showCols[key];
+      renderMain();
+    };
   }
 }
 
-function requirePin(fn, label) {
-  if (!STATE.pin) { fn(); return; }
-  var pin = prompt("🔐 Enter PIN for: " + label);
-  if (pin === STATE.pin) fn();
+/* ========== ACTIONS ========== */
+function doAddEntry(){
+  var a = $("amount-input"), r = $("remark-input");
+  if(!a || !r) return;
+  var parts = a.value.split("/");
+  var nums = [];
+  for(var i=0;i<parts.length;i++){ var n = parseFloat(parts[i].trim()); if(!isNaN(n) && n!==0) nums.push(n); }
+  if(nums.length===0) return alert("Enter amount");
+  if(STATE.selectedParty === STATE.counter) return alert("Same party not allowed");
+  var cp = null;
+  for(var x=0;x<STATE.parties.length;x++) if(STATE.parties[x].id===STATE.counter) cp = STATE.parties[x];
+  if(!cp || cp.status!=="Active") return alert("Counter inactive");
+  var t = Date.now(), date = today(), time = nowT();
+  for(var j=0;j<nums.length;j++){
+    var nn = nums[j];
+    var pid = "pair_"+t+"_"+j;
+    STATE.ledgers.push({ id:"e_"+t+"_"+j+"_a", pairId:pid, date:date, time:time, partyId:STATE.selectedParty, counterPartyId:STATE.counter, amount:nn, remark:r.value.trim(), createdAt:t+j*2 });
+    STATE.ledgers.push({ id:"e_"+t+"_"+j+"_b", pairId:pid, date:date, time:time, partyId:STATE.counter, counterPartyId:STATE.selectedParty, amount:-nn, remark:r.value.trim(), createdAt:t+j*2+1 });
+  }
+  a.value = ""; r.value = "";
+  saveNow();
+  renderMain();
+  setTimeout(function(){ var x=$("amount-input"); if(x) x.focus(); }, 50);
+}
+
+function openModify(id){
+  var e = null;
+  for(var i=0;i<STATE.ledgers.length;i++) if(STATE.ledgers[i].id===id) e = STATE.ledgers[i];
+  if(!e) return;
+  if(e.openingLocked || ((e.remark||"").toLowerCase()==="opening") || e.finalLocked) return alert("Locked");
+  var newAmt = prompt("New amount:", String(e.amount));
+  if(newAmt===null) return;
+  var amt = parseFloat(newAmt);
+  if(isNaN(amt) || amt===0) return alert("Invalid amount");
+  var newRem = prompt("New remark:", e.remark || "");
+  if(newRem===null) return;
+  for(var j=0;j<STATE.ledgers.length;j++){
+    var x = STATE.ledgers[j];
+    if(x.pairId!==e.pairId) continue;
+    if(x.openingLocked || ((x.remark||"").toLowerCase()==="opening") || x.finalLocked) continue;
+    if(x.partyId===e.partyId){ x.amount = amt; x.remark = newRem.trim(); }
+    else { x.amount = -amt; x.remark = newRem.trim(); }
+  }
+  saveNow();
+  renderMain();
+}
+
+function openDelete(id){
+  var e = null;
+  for(var i=0;i<STATE.ledgers.length;i++) if(STATE.ledgers[i].id===id) e = STATE.ledgers[i];
+  if(!e) return;
+  if(e.openingLocked || ((e.remark||"").toLowerCase()==="opening") || e.finalLocked) return alert("Locked");
+  if(!confirm("Delete from both sides?")) return;
+  var nl = [];
+  for(var j=0;j<STATE.ledgers.length;j++){
+    var x = STATE.ledgers[j];
+    if(x.openingLocked || ((x.remark||"").toLowerCase()==="opening") || x.finalLocked){ nl.push(x); continue; }
+    if(x.pairId && e.pairId){ if(x.pairId!==e.pairId) nl.push(x); }
+    else { if(x.id!==e.id) nl.push(x); }
+  }
+  STATE.ledgers = nl;
+  saveNow();
+  renderMain();
+}
+
+function addParty(){
+  var name = $("new-party-name").value.trim().toUpperCase();
+  if(!name) return alert("Enter name");
+  for(var i=0;i<STATE.parties.length;i++) if(STATE.parties[i].id===name) return alert("Exists");
+  requirePin(function(){
+    STATE.parties.push({ id:name, name:name, status:"Active" });
+    STATE.history.unshift({ id:"h_"+Date.now(), dateDisplay:dmy(today()), timeDisplay:nowT(), action:"Created", partyId:name, oldVal:"-", newVal:name, remark:"Created" });
+    saveNow();
+    renderDashboard();
+  }, "Create Party "+name);
+}
+
+function toggleActive(pid){
+  var p = null;
+  for(var i=0;i<STATE.parties.length;i++) if(STATE.parties[i].id===pid) p = STATE.parties[i];
+  if(!p) return;
+  var next = p.status==="Active" ? "Deactive" : "Active";
+  requirePin(function(){
+    var old = p.status;
+    p.status = next;
+    STATE.history.unshift({ id:"h_"+Date.now(), dateDisplay:dmy(today()), timeDisplay:nowT(), action:next, partyId:pid, oldVal:old, newVal:next, remark:next });
+    saveNow();
+    renderMain();
+  }, "Toggle "+pid);
+}
+
+function editParty(pid){
+  var p = null;
+  for(var i=0;i<STATE.parties.length;i++) if(STATE.parties[i].id===pid) p = STATE.parties[i];
+  if(!p) return;
+  requirePin(function(){
+    var newName = prompt("New name:", p.name);
+    if(!newName) return;
+    newName = newName.trim().toUpperCase();
+    if(newName===p.id) return;
+    for(var i=0;i<STATE.parties.length;i++) if(STATE.parties[i].id===newName) return alert("Exists");
+    var old = p.id;
+    p.id = newName; p.name = newName;
+    for(var j=0;j<STATE.ledgers.length;j++){
+      if(STATE.ledgers[j].partyId===old) STATE.ledgers[j].partyId = newName;
+      if(STATE.ledgers[j].counterPartyId===old) STATE.ledgers[j].counterPartyId = newName;
+    }
+    if(STATE.selectedParty===old) STATE.selectedParty = newName;
+    if(STATE.counter===old) STATE.counter = newName;
+    saveNow();
+    renderDashboard();
+  }, "Modify Party");
+}
+
+function changePassword(){
+  var cur = $("cur-pwd").value, nw = $("new-pwd").value, cf = $("cf-pwd").value;
+  var msg = $("pwd-msg");
+  msg.classList.add("hidden");
+  if(!cur){ msg.textContent="Current password required"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
+  if(!nw || nw.length<6){ msg.textContent="New password min 6"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
+  if(nw!==cf){ msg.textContent="Passwords do not match"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
+  sb.auth.getUser().then(function(r){
+    if(!r.data.user) return;
+    sb.auth.signInWithPassword({ email:r.data.user.email, password:cur }).then(function(vr){
+      if(vr.error){ msg.textContent="Current password wrong"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
+      sb.auth.updateUser({ password:nw }).then(function(ur){
+        if(ur.error){ msg.textContent=ur.error.message; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
+        msg.textContent="Password changed!"; msg.className="text-[12px] font-bold text-green-600"; msg.classList.remove("hidden");
+        $("cur-pwd").value=""; $("new-pwd").value=""; $("cf-pwd").value="";
+      });
+    });
+  });
+}
+
+function saveCompanyName(){
+  var n = $("company-name-input").value.trim();
+  if(n === STATE.companyName) return alert("No change");
+  requirePin(function(){
+    STATE.companyName = n;
+    saveNow();
+    alert("Saved");
+    renderDashboard();
+  }, "Company Name");
+}
+
+function setPin(){
+  var v = $("pin-input").value;
+  if(v.length<4) return alert("Min 4 digits");
+  STATE.pin = v;
+  saveNow();
+  alert("PIN Set");
+  renderMain();
+}
+
+function backupJSON(){
+  var data = { parties:STATE.parties, ledgers:STATE.ledgers, finals:STATE.finals, pin:STATE.pin, companyName:STATE.companyName, history:STATE.history };
+  downloadBlob(new Blob([JSON.stringify(data,null,2)], { type:"application/json" }), "backup_"+today()+".json");
+  STATE.lastBackup = Date.now();
+  saveNow();
+}
+
+function restoreFile(e){
+  var f = e.target.files[0];
+  if(!f) return;
+  e.target.value = "";
+  requirePin(function(){
+    var r = new FileReader();
+    r.onload = function(){
+      try{
+        var d = JSON.parse(r.result);
+        if(d.parties) STATE.parties = d.parties;
+        if(d.ledgers) STATE.ledgers = d.ledgers;
+        if(d.finals) STATE.finals = d.finals;
+        if(d.pin) STATE.pin = d.pin;
+        if(d.companyName!==undefined) STATE.companyName = d.companyName || "";
+        if(d.history) STATE.history = d.history;
+        saveNow();
+        alert("Restore OK");
+        renderDashboard();
+      }catch(ex){ alert("Invalid file"); }
+    };
+    r.readAsText(f);
+  }, "Restore");
+}
+
+function doLogout(){
+  saveLocal();
+  if(STATE.companyId && STATE.session){
+    sb.from("company_state").upsert({
+      company_id:STATE.companyId, state:buildSnap(),
+      updated_at:new Date().toISOString(), updated_by:STATE.session.user.id
+    }, { onConflict:"company_id" }).then(function(){ sb.auth.signOut(); });
+  } else { sb.auth.signOut(); }
+}
+
+function requirePin(fn, label){
+  if(!STATE.pin){ fn(); return; }
+  var p = prompt("Enter PIN for: "+label);
+  if(p === STATE.pin) fn();
   else alert("Wrong PIN");
 }
 
-function exportCSV() {
-  var entries = STATE.ledgers.filter(function(l){return l.partyId===STATE.selectedParty;}).sort(function(a,b){return a.createdAt-b.createdAt;});
-  var run = 0;
+function exportCSV(){
+  var entries = STATE.ledgers.filter(function(l){ return l.partyId===STATE.selectedParty; });
+  entries.sort(function(a,b){ return a.createdAt-b.createdAt; });
   var csv = "Date,Time,Counter,Amount,Remark,Debit,Credit,Balance\n";
-  entries.forEach(function(e) {
-    run += e.amount;
-    csv += e.date + "," + (e.time||"") + "," + (e.counterPartyId||"-") + ',"' + (e.remark||"").replace(/"/g,'""') + '",' + e.amount + "," + (e.amount<0?Math.abs(e.amount):"") + "," + (e.amount>0?e.amount:"") + "," + run + "\n";
-  });
-  downloadBlob(new Blob([csv], {type:"text/csv"}), "ledger_" + STATE.selectedParty + ".csv");
+  var run = 0;
+  for(var i=0;i<entries.length;i++){
+    var e = entries[i]; run += e.amount;
+    csv += e.date+","+(e.time||"")+","+(e.counterPartyId||"-")+',"'+(e.remark||"").replace(/"/g,'""')+'",'+e.amount+","+(e.amount<0?Math.abs(e.amount):"")+","+(e.amount>0?e.amount:"")+","+run+"\n";
+  }
+  downloadBlob(new Blob([csv], { type:"text/csv" }), "ledger_"+STATE.selectedParty+".csv");
 }
 
-function downloadBlob(blob, name) {
+function downloadBlob(blob, name){
   var url = URL.createObjectURL(blob);
   var a = document.createElement("a");
-  a.href = url; a.download = name; a.style.display = "none";
+  a.href=url; a.download=name; a.style.display="none";
   document.body.appendChild(a); a.click();
-  setTimeout(function() { a.remove(); URL.revokeObjectURL(url); }, 1500);
+  setTimeout(function(){ a.remove(); URL.revokeObjectURL(url); }, 1500);
 }
 
-/* ═══ INIT ═══ */
-sb.auth.getSession().then(function(r) {
-  if (r.data.session) {
+/* ========== MODALS ========== */
+function showFRModal(){
+  var T = THEMES[STATE.theme] || THEMES.ocean;
+  var filtered = STATE.finals.filter(function(g){ return g.partyId===STATE.selectedParty; });
+  filtered.sort(function(a,b){ return (a.createdAt||0)-(b.createdAt||0); });
+  var run = 0, rows = "";
+  for(var i=0;i<filtered.length;i++){
+    var g = filtered[i];
+    for(var j=0;j<g.entries.length;j++){
+      var e = g.entries[j];
+      var isCF = e.carryForward===true;
+      if(!isCF) run += e.amount;
+      rows += '<tr class="border-t'+(isCF?" bg-amber-50":"")+'">'+
+        '<td class="py-1 px-2.5 font-mono text-[12px]">'+dmy(e.date)+'</td>'+
+        '<td class="py-1 px-2.5 font-bold">'+esc(isCF?"B/F":(e.counterPartyId||"-"))+'</td>'+
+        '<td class="py-1 px-2.5">'+esc(isCF?"Opening":(e.remark||"-"))+'</td>'+
+        '<td class="py-1 px-2 text-right font-mono">'+((!isCF&&e.amount<0)?fmtAbs(e.amount):"-")+'</td>'+
+        '<td class="py-1 px-2 text-right font-mono">'+((!isCF&&e.amount>0)?fmt(e.amount):"-")+'</td>'+
+        '<td class="py-1 px-2 text-right font-mono font-black '+(run<0?"text-red-600":"text-green-600")+'">'+fmt(run)+'</td>'+
+      '</tr>';
+    }
+  }
+  if(!rows) rows = '<tr><td colspan="6" class="p-8 text-center opacity-60">No FINAL records</td></tr>';
+  var groups = filtered.length, rowCount = filtered.reduce(function(a,g){ return a+(g.entries||[]).length; },0);
+  var closing = filtered.length>0 ? (filtered[filtered.length-1].balance||0) : 0;
+  var modal = document.createElement("div");
+  modal.className = "fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4";
+  modal.onclick = function(e){ if(e.target===this) this.remove(); };
+  modal.innerHTML = '<div class="w-full max-w-[1100px] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] '+T.card+'">'+
+    '<div class="px-4 py-3 flex justify-between items-center" style="background:linear-gradient(90deg,#0369a1,#0891b2)">'+
+      '<div class="text-white"><div class="font-black text-[15px]">FINAL REPORT - '+esc(STATE.selectedParty)+'</div>'+
+      '<div class="text-[11px] opacity-90 font-bold">Groups: '+groups+' | Rows: '+rowCount+' | Closing: '+fmt(closing)+'</div></div>'+
+      '<button id="fr-close" class="w-8 h-8 rounded-lg bg-white/20 text-white font-black">X</button>'+
+    '</div>'+
+    '<div class="overflow-auto flex-1"><table class="w-full" style="font-size:13px"><thead class="sticky top-0 '+T.tblHeader+'"><tr>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Date</th>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Counter</th>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Remark</th>'+
+      '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Debit</th>'+
+      '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Credit</th>'+
+      '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Balance</th>'+
+    '</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '</div>';
+  document.body.appendChild(modal);
+  $("fr-close").onclick = function(){ modal.remove(); };
+}
+
+function showHistoryModal(){
+  var T = THEMES[STATE.theme] || THEMES.ocean;
+  var rows = "";
+  var list = STATE.historyFilter==="All" ? STATE.history : STATE.history.filter(function(x){ return x.partyId===STATE.historyFilter||x.oldVal===STATE.historyFilter||x.newVal===STATE.historyFilter; });
+  for(var i=0;i<list.length;i++){
+    var x = list[i];
+    rows += '<tr class="border-t"><td class="py-1.5 px-2.5 font-mono text-[12px]">'+esc(x.dateDisplay)+'</td>'+
+      '<td class="py-1.5 px-2.5 font-bold">'+esc(x.timeDisplay)+'</td>'+
+      '<td class="py-1.5 px-2.5"><span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black">'+esc(x.action)+'</span></td>'+
+      '<td class="py-1.5 px-2.5 font-black">'+esc(x.partyId)+'</td>'+
+      '<td class="py-1.5 px-2.5 font-mono text-[12px]">'+esc(x.oldVal)+'</td>'+
+      '<td class="py-1.5 px-2.5 font-mono text-[12px]">'+esc(x.newVal)+'</td>'+
+      '<td class="py-1.5 px-2.5">'+esc(x.remark)+'</td></tr>';
+  }
+  if(!rows) rows = '<tr><td colspan="7" class="p-8 text-center opacity-60">No history</td></tr>';
+  var popts = '<option>All</option>';
+  for(var k=0;k<STATE.parties.length;k++) popts += '<option'+(STATE.parties[k].id===STATE.historyFilter?" selected":"")+'>'+esc(STATE.parties[k].id)+'</option>';
+  var modal = document.createElement("div");
+  modal.className = "fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4";
+  modal.onclick = function(e){ if(e.target===this) this.remove(); };
+  modal.innerHTML = '<div class="w-full max-w-5xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] '+T.card+'">'+
+    '<div class="bg-gray-900 text-white px-4 py-3 flex justify-between"><div class="font-black text-[14px]">PARTY HISTORY</div>'+
+    '<button id="h-close" class="w-7 h-7 rounded bg-white/20 font-bold">X</button></div>'+
+    '<div class="px-3 py-2 border-b flex justify-between"><select id="h-filter" class="h-8 rounded border px-2 text-[12px] font-bold '+T.input+'">'+popts+'</select></div>'+
+    '<div class="overflow-auto flex-1"><table class="w-full" style="font-size:13px"><thead class="'+T.tblHeader+'"><tr>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Date</th>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Time</th>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Action</th>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Party</th>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Old</th>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">New</th>'+
+      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Remark</th>'+
+    '</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '</div>';
+  document.body.appendChild(modal);
+  $("h-close").onclick = function(){ modal.remove(); };
+  $("h-filter").onchange = function(){ STATE.historyFilter = this.value; modal.remove(); showHistoryModal(); };
+}
+
+/* INIT */
+sb.auth.getSession().then(function(r){
+  if(r.data.session){
     STATE.session = r.data.session;
     loadAll();
   } else {
@@ -888,13 +970,9 @@ sb.auth.getSession().then(function(r) {
     render();
   }
 });
-
-sb.auth.onAuthStateChange(function(evt, sess) {
-  if (evt === "SIGNED_OUT") {
-    STATE.session = null;
-    STATE.profile = null;
-    STATE.ready = true;
-    render();
+sb.auth.onAuthStateChange(function(evt, sess){
+  if(evt === "SIGNED_OUT"){
+    STATE.session = null; STATE.profile = null; STATE.ready = true; render();
   }
 });
 </script>
