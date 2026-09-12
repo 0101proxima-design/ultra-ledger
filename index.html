@@ -208,6 +208,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const fileInputRef = useRef(null);
   const saveTimerRef = useRef(null);
   const skipSaveRef = useRef(true);
+  const stateRef = useRef({});
+  stateRef.current = { parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter };
 
   useEffect(() => { setTimeout(() => { skipSaveRef.current = false; }, 1500); }, []);
 
@@ -297,12 +299,43 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const showToast = (msg) => setToast(msg);
 
+  // HELPER: Save immediately (localStorage + Cloud)
+  const saveNow = (updates) => {
+    const newState = {
+      parties: updates.parties || parties,
+      ledgers: updates.ledgers || ledgers,
+      finals: updates.finals || finals,
+      pin: updates.pin !== undefined ? updates.pin : pin,
+      companyName: updates.companyName !== undefined ? updates.companyName : companyName,
+      history: updates.history || history,
+      lastBackupTime: updates.lastBackupTime || lastBackupTime,
+      selectedParty: updates.selectedParty || selectedParty,
+      counter: updates.counter || counter,
+      savedAt: Date.now()
+    };
+    try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(newState)); } catch(e) {}
+    if (saveCloud) saveCloud(newState);
+  };
+
   const safeLogout = async () => {
     try {
-      const snap = { parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter, savedAt: Date.now() };
+      const latest = stateRef.current || {};
+      const snap = {
+        parties: latest.parties || parties,
+        ledgers: latest.ledgers || ledgers,
+        finals: latest.finals || finals,
+        pin: latest.pin !== undefined ? latest.pin : pin,
+        companyName: latest.companyName !== undefined ? latest.companyName : companyName,
+        history: latest.history || history,
+        lastBackupTime: latest.lastBackupTime || lastBackupTime,
+        selectedParty: latest.selectedParty || selectedParty,
+        counter: latest.counter || counter,
+        savedAt: Date.now()
+      };
+      console.log("🚪 Logout: saving", (snap.ledgers || []).length, "entries");
       try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
-      if (saveCloud) { try { await saveCloud(snap); } catch(e) { console.error(e); } }
-      await new Promise(r => setTimeout(r, 400));
+      if (saveCloud) { try { await saveCloud(snap); console.log("🚪 Cloud saved on logout"); } catch(e) { console.error(e); } }
+      await new Promise(r => setTimeout(r, 500));
       await onLogout();
     } catch (e) { console.error(e); await onLogout(); }
   };
@@ -340,8 +373,10 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       newEntries.push({ id: "e_" + now + "_" + i + "_1", pairId, date, time, partyId: selectedParty, counterPartyId: counter, amount: n, remark: finalRemark, createdAt: now + i * 2 });
       newEntries.push({ id: "e_" + now + "_" + i + "_2", pairId, date, time, partyId: counter, counterPartyId: selectedParty, amount: -n, remark: finalRemark, createdAt: now + i * 2 + 1 });
     });
-    setLedgers(prev => prev.concat(newEntries));
+    const newLedgers = ledgers.concat(newEntries);
+    setLedgers(newLedgers);
     setAmount(""); setRemark("");
+    saveNow({ ledgers: newLedgers });
     showToast("Added " + nums.map(fmtINR).join(" / "));
     setTimeout(() => { if (counterRef.current) counterRef.current.focus(); }, 50);
   };
@@ -356,13 +391,16 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const amt = parseFloat(editForm.amount);
     if (isNaN(amt) || amt === 0) return showToast("Invalid amount");
     const finalRemark = (editForm.remark || "").trim();
-    setLedgers(prev => prev.map(e => {
+    const newLedgers = ledgers.map(e => {
       if (e.pairId !== editEntry.pairId) return e;
       if (isLocked(e)) return e;
       if (e.partyId === editEntry.partyId) return { ...e, date: editForm.date, counterPartyId: editForm.counter, amount: amt, remark: finalRemark };
       return { ...e, date: editForm.date, partyId: editForm.counter, counterPartyId: editEntry.partyId, amount: -amt, remark: finalRemark };
-    }));
-    setEditEntry(null); showToast("Modified");
+    });
+    setLedgers(newLedgers);
+    setEditEntry(null);
+    saveNow({ ledgers: newLedgers });
+    showToast("Modified");
   };
 
   const handleDelete = (e) => {
@@ -372,12 +410,15 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const confirmDelete = () => {
     const { pairId, id } = deleteEntry;
-    setLedgers(prev => prev.filter(e => {
+    const newLedgers = ledgers.filter(e => {
       if (isLocked(e)) return true;
       if (e.pairId && pairId) return e.pairId !== pairId;
       return e.id !== id;
-    }));
-    setDeleteEntry(null); showToast("Deleted");
+    });
+    setLedgers(newLedgers);
+    setDeleteEntry(null);
+    saveNow({ ledgers: newLedgers });
+    showToast("Deleted");
   };
 
   const doFinal = () => {
@@ -385,11 +426,15 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const balance = entries.reduce((a, e) => a + e.amount, 0);
     const now = Date.now();
     const counterEntries = ledgers.filter(l => l.counterPartyId === selectedParty && !l.openingLocked && (l.remark || "").toLowerCase() !== "opening" && !l.finalLocked);
-    setFinals(prev => prev.concat([{ id: "final_" + now, partyId: selectedParty, closedAt: todayISO(), entries, counterEntries, balance, createdAt: now }]));
+    const newFinals = finals.concat([{ id: "final_" + now, partyId: selectedParty, closedAt: todayISO(), entries, counterEntries, balance, createdAt: now }]);
     const cps = new Set(counterEntries.map(e => e.pairId));
-    setLedgers(prev => prev.filter(l => l.partyId !== selectedParty).map(l => cps.has(l.pairId) ? { ...l, finalLocked: true } : l)
-      .concat([{ id: "open_" + now, pairId: "opening_" + now, date: todayISO(), time: nowTime(), partyId: selectedParty, counterPartyId: "", amount: balance, remark: "Opening", createdAt: now + 5, openingLocked: true, carryForward: true }]));
-    setConfirmFinal(false); showToast(selectedParty + " Finalized");
+    const newLedgers = ledgers.filter(l => l.partyId !== selectedParty).map(l => cps.has(l.pairId) ? { ...l, finalLocked: true } : l)
+      .concat([{ id: "open_" + now, pairId: "opening_" + now, date: todayISO(), time: nowTime(), partyId: selectedParty, counterPartyId: "", amount: balance, remark: "Opening", createdAt: now + 5, openingLocked: true, carryForward: true }]);
+    setFinals(newFinals);
+    setLedgers(newLedgers);
+    setConfirmFinal(false);
+    saveNow({ ledgers: newLedgers, finals: newFinals });
+    showToast(selectedParty + " Finalized");
   };
 
   const addParty = () => {
@@ -401,17 +446,25 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const confirmAddParty = () => {
     const name = partyConfirm.name;
-    setParties(prev => prev.concat([{ id: name, name, status: "Active" }]));
-    setHistory(prev => [{ id: "h_" + Date.now(), dateDisplay: dmy(todayISO()), timeDisplay: nowTime(), action: "Created", partyId: name, oldVal: "-", newVal: name, remark: name + " Created" }, ...prev]);
-    setNewPartyName(""); setPartyConfirm(null); showToast("Party " + name + " created");
+    const newParties = parties.concat([{ id: name, name, status: "Active" }]);
+    const newHistory = [{ id: "h_" + Date.now(), dateDisplay: dmy(todayISO()), timeDisplay: nowTime(), action: "Created", partyId: name, oldVal: "-", newVal: name, remark: name + " Created" }, ...history];
+    setParties(newParties);
+    setHistory(newHistory);
+    setNewPartyName(""); setPartyConfirm(null);
+    saveNow({ parties: newParties, history: newHistory });
+    showToast("Party " + name + " created");
   };
 
   const requestToggle = (p) => requirePin(() => setToggleConfirm({ party: p, next: p.status === "Active" ? "Deactive" : "Active" }), "Toggle " + p.id);
   const confirmToggle = () => {
     const p = toggleConfirm.party, next = toggleConfirm.next;
-    setParties(prev => prev.map(x => x.id === p.id ? { ...x, status: next } : x));
-    setHistory(prev => [{ id: "h_" + Date.now(), dateDisplay: dmy(todayISO()), timeDisplay: nowTime(), action: next === "Active" ? "Activate" : "Deactivate", partyId: p.id, oldVal: p.status, newVal: next, remark: next }, ...prev]);
-    setToggleConfirm(null); showToast(p.id + " " + next);
+    const newParties = parties.map(x => x.id === p.id ? { ...x, status: next } : x);
+    const newHistory = [{ id: "h_" + Date.now(), dateDisplay: dmy(todayISO()), timeDisplay: nowTime(), action: next === "Active" ? "Activate" : "Deactivate", partyId: p.id, oldVal: p.status, newVal: next, remark: next }, ...history];
+    setParties(newParties);
+    setHistory(newHistory);
+    setToggleConfirm(null);
+    saveNow({ parties: newParties, history: newHistory });
+    showToast(p.id + " " + next);
   };
 
   const requestEditParty = (p) => requirePin(() => { setEditParty(p); setEditPartyName(p.name); }, "Modify Party");
@@ -419,11 +472,14 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const name = editPartyName.trim().toUpperCase();
     if (!name || name === editParty.id) { setEditParty(null); return; }
     if (parties.some(p => p.id === name)) return showToast("Exists");
-    setParties(prev => prev.map(p => p.id === editParty.id ? { ...p, id: name, name } : p));
-    setLedgers(prev => prev.map(l => ({ ...l, partyId: l.partyId === editParty.id ? name : l.partyId, counterPartyId: l.counterPartyId === editParty.id ? name : l.counterPartyId })));
+    const newParties = parties.map(p => p.id === editParty.id ? { ...p, id: name, name } : p);
+    const newLedgers = ledgers.map(l => ({ ...l, partyId: l.partyId === editParty.id ? name : l.partyId, counterPartyId: l.counterPartyId === editParty.id ? name : l.counterPartyId }));
+    setParties(newParties); setLedgers(newLedgers);
     if (selectedParty === editParty.id) setSelectedParty(name);
     if (counter === editParty.id) setCounter(name);
-    setEditParty(null); showToast("Renamed");
+    setEditParty(null);
+    saveNow({ parties: newParties, ledgers: newLedgers });
+    showToast("Renamed");
   };
 
   const downloadBlob = (blob, name) => {
@@ -479,13 +535,13 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     }, "Restore");
   };
 
-  const removePin = () => requirePin(() => { if (confirm("Remove PIN?")) { setPin(""); showToast("PIN removed"); } }, "Remove PIN");
+  const removePin = () => requirePin(() => { if (confirm("Remove PIN?")) { setPin(""); saveNow({ pin: "" }); showToast("PIN removed"); } }, "Remove PIN");
   const saveCompanyName = () => {
     const n = companyNameInput.trim();
     if (n === companyName) return showToast("No change");
-    requirePin(() => { setCompanyName(n); showToast("Saved"); }, "Change Company Name");
+    requirePin(() => { setCompanyName(n); saveNow({ companyName: n }); showToast("Saved"); }, "Change Company Name");
   };
-  const clearCompanyName = () => requirePin(() => { setCompanyName(""); setCompanyNameInput(""); showToast("Cleared"); }, "Clear Company Name");
+  const clearCompanyName = () => requirePin(() => { setCompanyName(""); setCompanyNameInput(""); saveNow({ companyName: "" }); showToast("Cleared"); }, "Clear Company Name");
 
   const NAV = [
     { id: "ledger", label: "LEDGER", icon: "📒" },
@@ -674,7 +730,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "🔐 PIN SECURITY"),
       !pin ? h("div", { className: "flex gap-3" },
         h("input", { type: "password", maxLength: 6, value: pinInput, onChange: e => { setPinInput(e.target.value.replace(/[^0-9]/g, "")); setPinMsg(""); }, placeholder: "4-6 digit PIN", className: "h-12 rounded-lg border px-4 text-[14px] font-bold w-[200px] " + T.input }),
-        h("button", { onClick: () => { if (pinInput.length < 4) { setPinMsg("Min 4 digits"); return; } setPin(pinInput); setPinInput(""); showToast("PIN Set"); }, className: "h-12 px-6 rounded-lg " + T.addBtn + " font-black text-[13px]" }, "Set PIN"),
+        h("button", { onClick: () => { if (pinInput.length < 4) { setPinMsg("Min 4 digits"); return; } setPin(pinInput); setPinInput(""); saveNow({ pin: pinInput }); showToast("PIN Set"); }, className: "h-12 px-6 rounded-lg " + T.addBtn + " font-black text-[13px]" }, "Set PIN"),
         pinMsg && h("div", { className: "text-[12px] text-red-600" }, pinMsg)) :
       h("div", { className: "flex gap-3 items-center" },
         h("span", { className: "px-4 py-2 rounded-lg bg-green-50 text-green-800 font-black" }, "PIN SET"),
@@ -836,7 +892,7 @@ function MainApp() {
       const candidates = [cloudData, localData].filter(d => d && Array.isArray(d.ledgers));
       let finalState;
       if (candidates.length === 0) {
-        finalState = { parties: SEED_PARTIES, ledgers: SEED_OPEN, finals: [], history: [], companyName: "", theme: "ocean", pin: "", lastBackupTime: 0, savedAt: Date.now() };
+        finalState = { parties: SEED_PARTIES, ledgers: SEED_OPEN, finals: [], history: [], companyName: "", pin: "", lastBackupTime: 0, savedAt: Date.now() };
       } else {
         candidates.sort((a, b) => {
           const lenDiff = (b.ledgers || []).length - (a.ledgers || []).length;
@@ -866,7 +922,7 @@ function MainApp() {
         setSaveStatus("error");
         return;
       }
-      console.log("✅ Cloud saved:", (newState.ledgers || []).length + " entries");
+      console.log("✅ Cloud saved:", (newState.ledgers || []).length, "entries");
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 1500);
     } catch (e) { console.error(e); setSaveStatus("error"); }
