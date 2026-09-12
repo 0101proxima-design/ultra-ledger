@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ULTRA LEDGER</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<style>
+  body { margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+  .slide-down { animation: slideDown 0.3s ease-out; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f8fafc;font-family:Inter,sans-serif">
+    <div style="text-align:center">
+      <div style="font-size:52px;margin-bottom:12px">📒</div>
+      <div style="font-size:16px;font-weight:900;color:#1e293b">ULTRA LEDGER</div>
+      <div style="font-size:12px;font-weight:700;color:#64748b;margin-top:6px">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const h = React.createElement;
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ============ SUPABASE CLOUD ============ */
+const SUPABASE_URL = "https://kzgqsjbayluqyhjhytkt.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_NllVu5uINdJpICN59kjKQA_ynf6GoUZ";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const EMAIL_DOMAIN = "@ultraledger.local";
+
+/* ============ INDEXEDDB HELPERS (local cache) ============ */
+const DB_NAME = "ultra_ledger_db";
+const DB_VERSION = 1;
+const STORE_NAME = "app_state";
+const LS_KEY = "ultra_ledger_last";
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: "key" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbSave(key, value) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).put({ key, value });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) { return false; }
+}
+
+async function idbLoad(key) {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const req = tx.objectStore(STORE_NAME).get(key);
+      req.onsuccess = () => resolve(req.result ? req.result.value : null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (e) { return null; }
+}
+
+if (typeof document !== "undefined") {
+  const fontStyle = document.createElement("style");
+  fontStyle.innerHTML = `
+    body, table, td, th, div, span, input, button, select, label {
+      font-family: Inter, "Segoe UI", Arial, sans-serif !important;
+      font-weight: 600 !important;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    table td { font-size: 13px !important; font-weight: 700 !important; padding-top: 2px !important; padding-bottom: 2px !important; }
+    table th { font-size: 12px !important; font-weight: 900 !important; text-transform: uppercase; letter-spacing: 0.03em; padding-top: 6px !important; padding-bottom: 6px !important; }
+    table tbody tr { height: 26px !important; }
+    .font-mono { font-family: "Consolas", "Monaco", monospace !important; font-weight: 700 !important; }
+    button:focus-visible { outline: 2px solid #06b6d4 !important; outline-offset: 2px !important; }
+    input:focus, select:focus { outline: 2px solid #06b6d4 !important; outline-offset: 0; }
+  `;
+  document.head.appendChild(fontStyle);
+}
+
+const THEMES = {
+  original: { label:"Original", dot1:"#000", dot2:"#fff", pageBg:"bg-[#fafafa]", header:"bg-white border-gray-200", sidebarBg:"bg-white", sidebarActive:"bg-black text-white border-black", sidebarInactive:"bg-white text-[#444] border-gray-200 hover:bg-gray-50", addBtn:"bg-black text-white", closingBtn:"bg-[#7ec8f0] text-black", exportBtn:"bg-black text-white", exportBtnAlt:"bg-white text-black border border-gray-200", card:"bg-white border-gray-200 shadow-sm", text:"text-gray-900", subText:"text-gray-500", input:"bg-white border-gray-200 text-black", tableHeader:"bg-[#f3f3f3]", modBtn:"bg-[#fff8c4] text-[#8a6d00] border border-[#f5e7a0]", delBtn:"bg-[#ffe5e5] text-[#b91c1c] border border-[#ffcfcf]", logoBg:"bg-black text-white" },
+  ocean: { label:"Ocean", dot1:"#0f172a", dot2:"#06b6d4", pageBg:"bg-[#f8fafc]", header:"bg-white border-slate-200", sidebarBg:"bg-white", sidebarActive:"bg-cyan-600 text-white border-cyan-600", sidebarInactive:"bg-white text-slate-600 border-slate-200 hover:bg-slate-50", addBtn:"bg-cyan-600 text-white hover:bg-cyan-700", closingBtn:"bg-cyan-500 text-white", exportBtn:"bg-slate-900 text-white", exportBtnAlt:"bg-white text-slate-700 border border-slate-200", card:"bg-white border-slate-200 shadow-sm", text:"text-slate-900", subText:"text-slate-500", input:"bg-white border-slate-200 text-slate-900", tableHeader:"bg-slate-100", modBtn:"bg-yellow-50 text-yellow-700 border border-cyan-200", delBtn:"bg-red-50 text-red-600 border border-red-200", logoBg:"bg-slate-900 text-white" },
+  forest: { label:"Forest", dot1:"#14532d", dot2:"#84cc16", pageBg:"bg-[#f6faf6]", header:"bg-white border-green-100", sidebarBg:"bg-white", sidebarActive:"bg-[#14532d] text-white border-[#14532d]", sidebarInactive:"bg-white text-green-800 border-green-100 hover:bg-green-50", addBtn:"bg-[#14532d] text-white", closingBtn:"bg-lime-500 text-[#14532d] font-bold", exportBtn:"bg-[#14532d] text-white", exportBtnAlt:"bg-white text-green-800 border border-green-200", card:"bg-white border-green-100 shadow-sm", text:"text-green-950", subText:"text-green-700", input:"bg-white border-green-200 text-green-900", tableHeader:"bg-green-50", modBtn:"bg-yellow-50 text-yellow-800 border border-green-200", delBtn:"bg-red-50 text-red-700 border border-red-200", logoBg:"bg-[#14532d] text-white" },
+  sunset: { label:"Sunset", dot1:"#1c1917", dot2:"#f97316", pageBg:"bg-[#fffaf5]", header:"bg-white border-orange-100", sidebarBg:"bg-white", sidebarActive:"bg-orange-500 text-white border-orange-500", sidebarInactive:"bg-white text-stone-600 border-orange-100 hover:bg-orange-50", addBtn:"bg-orange-500 text-white", closingBtn:"bg-amber-500 text-white", exportBtn:"bg-stone-900 text-white", exportBtnAlt:"bg-white text-stone-700 border border-orange-200", card:"bg-white border-orange-100 shadow-sm", text:"text-stone-900", subText:"text-stone-500", input:"bg-white border-orange-200 text-stone-900", tableHeader:"bg-orange-50", modBtn:"bg-amber-50 text-amber-800 border border-orange-200", delBtn:"bg-red-50 text-red-700 border border-red-200", logoBg:"bg-stone-900 text-white" },
+  midnight: { label:"Midnight Dark", dot1:"#000", dot2:"#fff", pageBg:"bg-black", header:"bg-black border-zinc-800", sidebarBg:"bg-black", sidebarActive:"bg-zinc-800 text-white border-zinc-700", sidebarInactive:"bg-[#111] text-zinc-400 border-zinc-800 hover:bg-zinc-900 hover:text-white", addBtn:"bg-white text-black font-semibold", closingBtn:"bg-zinc-800 text-white border border-zinc-700", exportBtn:"bg-white text-black", exportBtnAlt:"bg-[#111] text-zinc-300 border border-zinc-800", card:"bg-[#111] border-zinc-800", text:"text-white", subText:"text-zinc-500", input:"bg-zinc-900 border-zinc-800 text-white", tableHeader:"bg-zinc-900", modBtn:"bg-zinc-800 text-yellow-200 border border-zinc-700", delBtn:"bg-zinc-900 text-red-300 border border-zinc-800", logoBg:"bg-white text-black" }
+};
+
+const fmtINR = (n) => isNaN(n) ? "₹0/-" : "₹" + Number(n).toLocaleString("en-IN") + "/-";
+const absINR = (n) => "₹" + Math.abs(n).toLocaleString("en-IN") + "/-";
+const todayISO = () => new Date().toISOString().slice(0,10);
+const nowTime = () => { const d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
+const dmy = (iso) => { if(!iso) return "-"; const p=iso.split("-"); return p.length===3&&p[0].length===4 ? p[2]+"-"+p[1]+"-"+p[0] : iso; };
+
+const SEED_PARTIES = [
+  { id:"AA", name:"AA", status:"Active" },
+  { id:"BB", name:"BB", status:"Active" }
+];
+const SEED_OPEN = [
+  { id:"bb_open", pairId:"opening_bb", date:todayISO(), time:"09:15", partyId:"BB", counterPartyId:"", amount:37186, remark:"Opening", createdAt:5000, openingLocked:true },
+  { id:"aa_open", pairId:"opening_aa", date:todayISO(), time:"09:15", partyId:"AA", counterPartyId:"", amount:-37186, remark:"Opening", createdAt:5000, openingLocked:true }
+];
+
+function SearchableSelect({ value, options, onChange, T, style, className, dropUp, placeholder, onSelectComplete, triggerRef, onTriggerKeyDown, triggerTabIndex }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [highlightIdx, setHighlightIdx] = useState(0);
+  const ref = useRef(null);
+  const inputRef = useRef(null);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return options;
+    const q = query.toLowerCase();
+    return options.filter(o => (o.id || o.name || String(o)).toLowerCase().includes(q));
+  }, [options, query]);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setOpen(false); setQuery(""); setHighlightIdx(0);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  useEffect(() => {
+    if (open && inputRef.current) setTimeout(() => { if (inputRef.current) inputRef.current.focus(); }, 30);
+    if (open) setHighlightIdx(0);
+  }, [open]);
+
+  const select = (val) => {
+    onChange(val);
+    setOpen(false);
+    setQuery("");
+    setHighlightIdx(0);
+    if (onSelectComplete) setTimeout(onSelectComplete, 80);
+  };
+
+  const handleInputKeyDown = (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlightIdx(i => Math.min(i+1, filtered.length-1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlightIdx(i => Math.max(i-1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); const item = filtered[highlightIdx]; if (item) select(item.id || item.name || String(item)); }
+    else if (e.key === "Escape") { setOpen(false); setQuery(""); }
+    else if (e.key === "Tab") { e.preventDefault(); setOpen(false); setQuery(""); if (onTriggerKeyDown) onTriggerKeyDown(e); }
+  };
+
+  const handleTriggerKeyDown = (e) => {
+    if (e.key === "Tab") { e.preventDefault(); setOpen(false); setQuery(""); if (onTriggerKeyDown) onTriggerKeyDown(e); }
+    else if (e.key === "Enter") { e.preventDefault(); setOpen(true); }
+  };
+
+  const getLabel = (o) => o.name || o.id || String(o);
+  const getId = (o) => o.id || o.name || String(o);
+  const popupPosition = dropUp ? { bottom: "100%", marginBottom: "4px" } : { top: "100%", marginTop: "4px" };
+  const displayValue = value || placeholder || "Select";
+  const tabIdx = triggerTabIndex !== undefined ? triggerTabIndex : 0;
+
+  return h("div", { ref, className:"relative", style: style || {} },
+    h("button", {
+      type:"button",
+      ref: triggerRef,
+      tabIndex: tabIdx,
+      onClick: () => setOpen(v => !v),
+      onKeyDown: handleTriggerKeyDown,
+      className: "w-full h-10 rounded-lg border px-3 text-left flex items-center justify-between " + (className || "") + " " + T.input
+    },
+      h("span", { className:"truncate " + (value ? "" : "opacity-50") }, displayValue),
+      h("span", { className:"text-[11px] opacity-60 shrink-0 ml-1" }, dropUp ? "▲" : "▼")
+    ),
+    open && h("div", {
+      className:"absolute left-0 right-0 rounded-lg border shadow-2xl z-50 overflow-hidden " + T.card,
+      style: Object.assign({ maxHeight:"260px", display:"flex", flexDirection:"column" }, popupPosition)
+    },
+      h("div", { className:"p-1.5 border-b shrink-0" },
+        h("input", {
+          ref: inputRef, value: query,
+          onChange: e => { setQuery(e.target.value); setHighlightIdx(0); },
+          onKeyDown: handleInputKeyDown,
+          placeholder: "Type to search...",
+          className: "w-full h-8 rounded border px-2 text-[13px] font-bold " + T.input
+        })
+      ),
+      h("div", { className:"overflow-auto flex-1" },
+        filtered.length === 0 ? h("div", { className:"p-3 text-[12px] text-center opacity-60 font-bold" }, "No match") :
+        filtered.map((o, i) => {
+          const id = getId(o);
+          const isHL = i === highlightIdx;
+          const isSel = id === value;
+          return h("button", {
+            key: id, type:"button",
+            tabIndex: -1,
+            onClick: () => select(id),
+            onMouseEnter: () => setHighlightIdx(i),
+            className: "w-full text-left px-3 py-2 text-[13px] flex items-center justify-between " + (isHL ? "bg-cyan-50 text-cyan-900 font-bold" : "hover:bg-gray-50") + (isSel ? " bg-cyan-100" : "")
+          },
+            h("span", null, getLabel(o)),
+            isSel && h("span", { className:"text-[10px] text-cyan-600 font-black" }, "✓")
+          );
+        })
+      )
+    )
+  );
+}
+
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function doLogin(e) {
+    e.preventDefault(); setErr(""); setBusy(true);
+    try {
+      const uname = username.trim().toLowerCase();
+      if (!uname) throw new Error("Username required");
+      const { data: prof } = await sb.from("profiles").select("username, company_id").eq("username", uname).maybeSingle();
+      if (!prof || !prof.company_id) throw new Error("Username not found");
+      const { data: comp } = await sb.from("companies").select("code").eq("id", prof.company_id).single();
+      if (!comp) throw new Error("Company not found");
+      const email = uname + "." + comp.code.toLowerCase() + EMAIL_DOMAIN;
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw new Error("Wrong username or password");
+      if (onLogin) await onLogin(data.session);
+    } catch (e) { setErr(e.message || "Login failed"); } finally { setBusy(false); }
+  }
+
+  return h("div", { className:"min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-cyan-50 p-4" },
+    h("div", { className:"w-full max-w-md" },
+      h("div", { className:"text-center mb-6" },
+        h("div", { className:"text-[52px] mb-2" }, "📒"),
+        h("div", { className:"text-[26px] font-black tracking-tight text-slate-800" }, "ULTRA LEDGER"),
+        h("div", { className:"text-[12px] font-bold text-slate-500 tracking-widest uppercase mt-1" }, "Sign in")),
+      h("form", { onSubmit: doLogin, className:"bg-white rounded-2xl shadow-xl border border-slate-200 p-7" },
+        h("div", { className:"space-y-4" },
+          h("div", null,
+            h("label", { className:"text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Username"),
+            h("input", { value: username, onChange: e => setUsername(e.target.value.toLowerCase()), autoFocus:true, placeholder:"username", className:"w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-cyan-500" })),
+          h("div", null,
+            h("label", { className:"text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Password"),
+            h("input", { type:"password", value: password, onChange: e => setPassword(e.target.value), placeholder:"••••••••", className:"w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-cyan-500" }))),
+        err && h("div", { className:"mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700" }, "❌ " + err),
+        h("button", { type:"submit", disabled: busy, className:"mt-5 w-full h-12 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white font-black text-[14px]" }, busy ? "..." : "LOGIN"))));
+}
+
+function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus }) {
+  const [loaded, setLoaded] = useState(true);
+  const [loadingMsg, setLoadingMsg] = useState("Ready");
+
+  const [theme, setTheme] = useState((cloudState && cloudState.theme) || "ocean");
+  const [tab, setTab] = useState("ledger");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [companyName, setCompanyName] = useState((cloudState && cloudState.companyName) || "");
+  const [parties, setParties] = useState((cloudState && cloudState.parties) || SEED_PARTIES);
+  const [ledgers, setLedgers] = useState((cloudState && cloudState.ledgers) || SEED_OPEN);
+  const [finals, setFinals] = useState((cloudState && cloudState.finals) || []);
+  const [selectedParty, setSelectedParty] = useState("BB");
+  const [toast, setToast] = useState(null);
+  const [counter, setCounter] = useState("AA");
+  const [amount, setAmount] = useState("");
+  const [remark, setRemark] = useState("");
+  const [search, setSearch] = useState("");
+  const [showCols, setShowCols] = useState({ date:true, counter:true, remark:true, debit:true, credit:true, balance:true, action:true });
+  const [showColDropdown, setShowColDropdown] = useState(false);
+  const [editEntry, setEditEntry] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [deleteEntry, setDeleteEntry] = useState(null);
+  const [confirmFinal, setConfirmFinal] = useState(false);
+  const [lockedInfo, setLockedInfo] = useState(null);
+  const [pin, setPin] = useState((cloudState && cloudState.pin) || "");
+  const [pinInputProfile, setPinInputProfile] = useState("");
+  const [pinProfileMsg, setPinProfileMsg] = useState("");
+  const [companyNameInput, setCompanyNameInput] = useState((cloudState && cloudState.companyName) || "");
+  const [history, setHistory] = useState((cloudState && cloudState.history) || [
+    { id:"h1", dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:"Created", partyId:"AA", oldVal:"-", newVal:"AA", remark:"AA Created" },
+    { id:"h2", dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:"Created", partyId:"BB", oldVal:"-", newVal:"BB", remark:"BB Created" }
+  ]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState("All");
+  const [newPartyName, setNewPartyName] = useState("");
+  const [partyUnlocked, setPartyUnlocked] = useState(false);
+  const [partyConfirm, setPartyConfirm] = useState(null);
+  const [editParty, setEditParty] = useState(null);
+  const [editPartyName, setEditPartyName] = useState("");
+  const [toggleConfirm, setToggleConfirm] = useState(null);
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [finalFilterParty, setFinalFilterParty] = useState("");
+  const [finalSearch, setFinalSearch] = useState("");
+  const [frOpen, setFrOpen] = useState(false);
+  const [frSearch, setFrSearch] = useState("");
+  const [pinPrompt, setPinPrompt] = useState(null);
+  const [pinPromptInput, setPinPromptInput] = useState("");
+  const [pinPromptErr, setPinPromptErr] = useState("");
+  const [lastBackupTime, setLastBackupTime] = useState((cloudState && cloudState.lastBackupTime) || 0);
+  const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
+  const [backupCheckTick, setBackupCheckTick] = useState(0);
+
+  const tableEndRef = useRef(null);
+  const amountRef = useRef(null);
+  const remarkRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const skipSaveRef = useRef(true);
+  const stateSnapRef = useRef({});
+  const partyRef = useRef(null);
+  const counterRef = useRef(null);
+  const addBtnRef = useRef(null);
+  const firstNavRef = useRef(null);
+  const lastNavRef = useRef(null);
+
+  stateSnapRef.current = { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
+
+  useEffect(() => { setTimeout(() => { skipSaveRef.current = false; }, 1200); }, []);
+
+  // CLOUD AUTO-SAVE
+  useEffect(() => {
+    if (!loaded || skipSaveRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      if (saveCloud) {
+        saveCloud({ parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter });
+      }
+    }, 800);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, loaded]);
+
+  // Local cache save
+  useEffect(() => {
+    if (!loaded) return;
+    const handleUnload = () => {
+      if (skipSaveRef.current) return;
+      const snap = Object.assign({}, stateSnapRef.current);
+      try { localStorage.setItem(LS_KEY, JSON.stringify(snap)); } catch(e) {}
+      try { idbSave("state", snap); } catch(e) {}
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    return () => window.removeEventListener("beforeunload", handleUnload);
+  }, [loaded]);
+
+  useEffect(() => { const iv = setInterval(() => setBackupCheckTick(t => t + 1), 60000); return () => clearInterval(iv); }, []);
+  const hoursSinceBackup = lastBackupTime ? (Date.now() - lastBackupTime) / (1000 * 60 * 60) : 9999;
+  const backupDue = hoursSinceBackup >= 24;
+
+  useEffect(() => { if(toast){ const t=setTimeout(()=>setToast(null),2500); return ()=>clearTimeout(t); } }, [toast]);
+  useEffect(() => { if (tableEndRef.current) tableEndRef.current.scrollIntoView({ behavior:"smooth", block:"end" }); }, [ledgers.length, selectedParty, tab]);
+  useEffect(() => { if (!loaded || tab !== "ledger") return; const t = setTimeout(() => { if (counterRef.current) counterRef.current.focus(); }, 350); return () => clearTimeout(t); }, [loaded, tab, selectedParty]);
+
+  const T = THEMES[theme] || THEMES.ocean;
+  const selectedPartyObj = parties.find(p => p.id === selectedParty);
+  const isSelectedPartyDeactive = selectedPartyObj && selectedPartyObj.status !== "Active";
+
+  const partyEntries = useMemo(() => ledgers.filter(l => l.partyId === selectedParty).sort((a,b)=>a.createdAt-b.createdAt), [ledgers, selectedParty]);
+  const balMap = useMemo(() => { const m = new Map(); let run = 0; partyEntries.forEach(e => { run += e.amount; m.set(e.id, run); }); return { map:m, total:run }; }, [partyEntries]);
+  const filteredEntries = useMemo(() => { if(!search.trim()) return partyEntries; const s = search.toLowerCase(); return partyEntries.filter(e => (dmy(e.date)+" "+(e.time||"")+" "+(e.counterPartyId||"")+" "+(e.remark||"")+" "+e.amount).toLowerCase().includes(s)); }, [partyEntries, search]);
+
+  const isLocked = (e) => {
+    if (e.openingLocked === true) return true;
+    if ((e.remark||"").toLowerCase()==="opening") return true;
+    if (e.finalLocked === true) return true;
+    if (e.pairId && finals.some(g => (g.counterEntries||[]).some(fe => fe.pairId === e.pairId))) return true;
+    return false;
+  };
+
+  const getLockReason = (e) => {
+    if (e.openingLocked || (e.remark||"").toLowerCase()==="opening") return "Opening Balance – Locked";
+    if (e.finalLocked) return "FINAL Closing ke baad counter entry locked";
+    if (e.pairId && finals.some(g => (g.counterEntries||[]).some(fe => fe.pairId === e.pairId))) return "This entry is part of a finalized group – Locked";
+    return "This entry is locked";
+  };
+
+  const allPartyBalances = useMemo(() => { const m = {}; parties.forEach(p => { m[p.id] = ledgers.filter(l=>l.partyId===p.id).reduce((a,e)=>a+e.amount,0); }); return m; }, [parties, ledgers]);
+
+  const trial = useMemo(() => {
+    let src = ledgers;
+    if(filterFrom) src = src.filter(e => e.date >= filterFrom);
+    if(filterTo) src = src.filter(e => e.date <= filterTo);
+    const debitParties = [], creditParties = [];
+    parties.filter(p=>p.status==="Active").forEach(p => {
+      const bal = src.filter(l=>l.partyId===p.id).reduce((a,e)=>a+e.amount,0);
+      if(bal<0) debitParties.push({ party:p, bal:bal });
+      else if(bal>0) creditParties.push({ party:p, bal:bal });
+    });
+    const debit = debitParties.reduce((a,x)=>a+Math.abs(x.bal),0);
+    const credit = creditParties.reduce((a,x)=>a+x.bal,0);
+    const diff = credit - debit;
+    const status = diff===0 ? "BALANCED" : diff>0 ? "CREDIT EXCESS "+Math.abs(diff).toLocaleString("en-IN") : "DEBIT EXCESS "+Math.abs(diff).toLocaleString("en-IN");
+    return { debitParties, creditParties, debit, credit, diff, status };
+  }, [ledgers, parties, filterFrom, filterTo]);
+
+  const finalRows = useMemo(() => {
+    if(!finals.length) return [];
+    if(!finalFilterParty) return [];
+    const filteredFinals = finals.filter(g => g.partyId === finalFilterParty);
+    const sorted = filteredFinals.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+    let run = 0; const out = [];
+    sorted.forEach(g => {
+      g.entries.forEach(e => {
+        const isCF = e.carryForward === true;
+        if (!isCF) run += e.amount;
+        out.push({ id:e.id, partyId:g.partyId, date:e.date, time:e.time, counterPartyId: isCF ? "B/F" : e.counterPartyId, remark: isCF ? "Opening" : e.remark, amount: isCF ? 0 : e.amount, _debit: (!isCF && e.amount<0) ? Math.abs(e.amount).toString() : "-", _credit: (!isCF && e.amount>0) ? e.amount.toString() : "-", _bal:run, isClosing:false, isOpeningEntry:isCF });
+      });
+      out.push({ id:"closing_"+g.id, partyId:g.partyId, date:g.closedAt, time:"", counterPartyId:"-", remark:"FINAL CLOSING BALANCE • "+g.partyId, amount:0, _debit:"-", _credit:"-", _bal:run, isClosing:true });
+    });
+    if (finalSearch.trim()) { const s = finalSearch.toLowerCase(); return out.filter(r => (dmy(r.date)+" "+(r.partyId||"")+" "+(r.counterPartyId||"")+" "+(r.remark||"")+" "+r._bal).toLowerCase().includes(s)); }
+    return out;
+  }, [finals, finalFilterParty, finalSearch]);
+
+  const frRows = useMemo(() => {
+    if(!finals.length) return [];
+    const filteredFinals = finals.filter(g => g.partyId === selectedParty);
+    const sorted = filteredFinals.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+    let run = 0; const out = [];
+    sorted.forEach(g => {
+      g.entries.forEach(e => {
+        const isCF = e.carryForward === true;
+        if (!isCF) run += e.amount;
+        out.push({ id:e.id, partyId:g.partyId, date:e.date, time:e.time, counterPartyId: isCF ? "B/F" : e.counterPartyId, remark: isCF ? "Opening" : e.remark, amount: isCF ? 0 : e.amount, _debit: (!isCF && e.amount<0) ? Math.abs(e.amount).toString() : "-", _credit: (!isCF && e.amount>0) ? e.amount.toString() : "-", _bal:run, isClosing:false, isOpeningEntry:isCF });
+      });
+      out.push({ id:"closing_"+g.id, partyId:g.partyId, date:g.closedAt, time:"", counterPartyId:"-", remark:"FINAL CLOSING BALANCE • "+g.partyId, amount:0, _debit:"-", _credit:"-", _bal:run, isClosing:true });
+    });
+    if (frSearch.trim()) { const s = frSearch.toLowerCase(); return out.filter(r => (dmy(r.date)+" "+(r.counterPartyId||"")+" "+(r.remark||"")+" "+r._bal).toLowerCase().includes(s)); }
+    return out;
+  }, [finals, selectedParty, frSearch]);
+
+  const frSummary = useMemo(() => {
+    const partyFinals = finals.filter(g => g.partyId === selectedParty);
+    const totalGroups = partyFinals.length;
+    const totalRows = partyFinals.reduce((a,g)=>a+(g.entries||[]).length, 0);
+    const sorted = partyFinals.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+    const closingBal = sorted.length > 0 ? (sorted[sorted.length-1].balance||0) : 0;
+    return { totalGroups, totalRows, closingBal };
+  }, [finals, selectedParty]);
+
+  const showToast = (msg) => setToast(msg);
+
+  const requirePin = (runFn, label) => {
+    if (!pin) return runFn();
+    setPinPrompt({ run: runFn, label: label || "Confirmation" });
+    setPinPromptInput("");
+    setPinPromptErr("");
+  };
+
+  const confirmPinPrompt = () => {
+    if (pinPromptInput === pin) {
+      const fn = pinPrompt.run;
+      setPinPrompt(null); setPinPromptInput(""); setPinPromptErr("");
+      setTimeout(() => fn(), 50);
+    } else setPinPromptErr("Wrong PIN – try again");
+  };
+
+  const parseAmounts = (str) => {
+    if(!str) return [];
+    const parts = str.split("/").map(s=>s.trim()).filter(Boolean);
+    const nums = [];
+    parts.forEach(p => { const n = parseFloat(p); if(!isNaN(n) && n!==0) nums.push(n); });
+    if(!nums.length) { const n = parseFloat(str); if(!isNaN(n) && n!==0) nums.push(n); }
+    return nums;
+  };
+
+  const handleAdd = () => {
+    const nums = parseAmounts(amount);
+    if(!nums.length) return showToast("Enter amount");
+    if(selectedParty === counter) return showToast("Same party");
+    if (isSelectedPartyDeactive) return showToast(selectedParty+" is DEACTIVE – cannot add entries");
+    const cpObj = parties.find(p => p.id === counter);
+    if (cpObj && cpObj.status !== "Active") return showToast(counter+" is DEACTIVE – cannot add entries");
+    const date = todayISO(), time = nowTime(), now = Date.now(), newEntries = [];
+    nums.forEach((n, i) => {
+      const pairId = "pair_"+now+"_"+i;
+      newEntries.push({ id:"e_"+now+"_"+i+"_1", pairId:pairId, date:date, time:time, partyId:selectedParty, counterPartyId:counter, amount:n, remark:remark.trim(), createdAt:now+i*2 });
+      newEntries.push({ id:"e_"+now+"_"+i+"_2", pairId:pairId, date:date, time:time, partyId:counter, counterPartyId:selectedParty, amount:-n, remark:remark.trim(), createdAt:now+i*2+1 });
+    });
+    setLedgers(prev => prev.concat(newEntries));
+    setAmount(""); setRemark("");
+    const total = nums.reduce((a,b)=>a+b,0);
+    showToast("Added "+nums.map(fmtINR).join(" / ")+" • Total "+fmtINR(total));
+    setTimeout(()=>{ if(counterRef.current) counterRef.current.focus(); }, 50);
+  };
+
+  const handleModify = (entry) => {
+    if(isLocked(entry)) return setLockedInfo({ entry:entry, reason:getLockReason(entry) });
+    setEditEntry(entry);
+    setEditForm({ date:entry.date, counter:entry.counterPartyId, amount:String(entry.amount), remark:entry.remark||"" });
+  };
+
+  const saveModify = () => {
+    const amt = parseFloat(editForm.amount);
+    if(isNaN(amt) || amt===0) return showToast("Invalid amount");
+    setLedgers(prev => prev.map(e => {
+      if(e.pairId !== editEntry.pairId) return e;
+      if(isLocked(e)) return e;
+      if(e.partyId === editEntry.partyId) return Object.assign({}, e, { date:editForm.date, counterPartyId:editForm.counter, amount:amt, remark:editForm.remark });
+      else return Object.assign({}, e, { date:editForm.date, partyId:editForm.counter, counterPartyId:editEntry.partyId, amount:-amt, remark:editForm.remark });
+    }));
+    setEditEntry(null);
+    showToast("Modified – both sides synced");
+  };
+
+  const handleDelete = (entry) => {
+    if(isLocked(entry)) return setLockedInfo({ entry:entry, reason:getLockReason(entry) });
+    setDeleteEntry(entry);
+  };
+
+  const confirmDelete = () => {
+    const pairId = deleteEntry.pairId, id = deleteEntry.id;
+    setLedgers(prev => prev.filter(e => {
+      if(isLocked(e)) return true;
+      if(e.pairId && pairId) return e.pairId !== pairId;
+      return e.id !== id;
+    }));
+    showToast("Deleted");
+    setDeleteEntry(null);
+  };
+
+  const doFinalClose = () => {
+    const entries = ledgers.filter(l=>l.partyId===selectedParty).sort((a,b)=>a.createdAt-b.createdAt);
+    const balance = entries.reduce((a,e)=>a+e.amount,0);
+    const now = Date.now();
+    const counterEntries = ledgers.filter(l => l.counterPartyId === selectedParty && !l.openingLocked && (l.remark||"").toLowerCase() !== "opening" && !l.finalLocked);
+    setFinals(prev => prev.concat([{ id:"final_"+now, partyId:selectedParty, closedAt:todayISO(), entries:entries, counterEntries:counterEntries, balance:balance, createdAt:now }]));
+    const counterPairIds = new Set(counterEntries.map(e => e.pairId));
+    setLedgers(prev => prev.filter(l => l.partyId !== selectedParty).map(l => { if (counterPairIds.has(l.pairId)) return Object.assign({}, l, { finalLocked: true }); return l; }).concat([{ id:"open_"+now, pairId:"opening_"+now, date:todayISO(), time:nowTime(), partyId:selectedParty, counterPartyId:"", amount:balance, remark:"Opening", createdAt:now+5, openingLocked:true, carryForward:true }]));
+    setConfirmFinal(false);
+    showToast(selectedParty+" Finalized → Opening "+fmtINR(balance));
+  };
+
+  const requestFinalClose = () => { requirePin(() => setConfirmFinal(true), "FINAL Closing"); };
+
+  const addParty = () => {
+    const name = newPartyName.trim().toUpperCase();
+    if(!name) return showToast("Enter name");
+    if(parties.some(p=>p.id===name)) return showToast("Exists");
+    requirePin(() => setPartyConfirm({ name:name }), "Create Party "+name);
+  };
+
+  const confirmAddParty = () => {
+    const name = partyConfirm.name;
+    setParties(prev => prev.concat([{ id:name, name:name, status:"Active" }]));
+    setHistory(prev => [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:"Created", partyId:name, oldVal:"-", newVal:name, remark:name+" Created" }].concat(prev));
+    setNewPartyName(""); setPartyConfirm(null);
+    showToast("Party "+name+" created");
+  };
+
+  const requestToggleActive = (party) => { requirePin(() => setToggleConfirm({ party:party, next: party.status==="Active" ? "Deactive" : "Active" }), (party.status==="Active"?"Deactivate ":"Activate ")+party.id); };
+  const confirmToggle = () => {
+    const p = toggleConfirm.party, next = toggleConfirm.next;
+    setParties(prev => prev.map(x => x.id===p.id ? Object.assign({},x,{status:next}) : x));
+    setHistory(prev => [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:next==="Active"?"Activate":"Deactivate", partyId:p.id, oldVal:p.status, newVal:next, remark:next }].concat(prev));
+    setToggleConfirm(null);
+    showToast(p.id+" "+next);
+  };
+
+  const requestEditParty = (party) => { requirePin(() => { setEditParty(party); setEditPartyName(party.name); }, "Modify Party "+party.id); };
+
+  const savePartyEdit = () => {
+    const name = editPartyName.trim().toUpperCase();
+    if(!name || name === editParty.id) { setEditParty(null); return; }
+    if(parties.some(p=>p.id===name)) return showToast("Exists");
+    setParties(prev => prev.map(p => p.id===editParty.id ? Object.assign({},p,{id:name,name:name}) : p));
+    setLedgers(prev => prev.map(l => { let pid = l.partyId, cid = l.counterPartyId; if(pid===editParty.id) pid=name; if(cid===editParty.id) cid=name; return Object.assign({},l,{partyId:pid,counterPartyId:cid}); }));
+    setFinals(prev => prev.map(g => g.partyId === editParty.id ? Object.assign({},g,{partyId:name}) : g));
+    if(selectedParty===editParty.id) setSelectedParty(name);
+    if(counter===editParty.id) setCounter(name);
+    setHistory(prev => [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:"Modify", partyId:name, oldVal:editParty.id, newVal:name, remark:"Renamed "+editParty.id+" → "+name }].concat(prev));
+    setEditParty(null);
+    showToast("Renamed "+editParty.id+" → "+name);
+  };
+
+  const downloadBlob = (blob, name) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href=url; a.download=name; a.style.display="none";
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ a.remove(); URL.revokeObjectURL(url); }, 1500);
+  };
+
+  const exportCSV = () => {
+    let csv = "Date,Time,Counter,Amount,Remark,Debit,Credit,Balance\n";
+    filteredEntries.forEach(e => {
+      const bal = balMap.map.get(e.id) || 0;
+      const debit = e.amount<0 ? Math.abs(e.amount) : "";
+      const credit = e.amount>0 ? e.amount : "";
+      csv += e.date+","+(e.time||"")+","+(e.counterPartyId||"-")+',"'+(e.remark||"").replace(/"/g,'""')+'",'+e.amount+","+debit+","+credit+","+bal+"\n";
+    });
+    downloadBlob(new Blob([csv],{type:"text/csv"}), "ledger_"+selectedParty+".csv");
+    showToast("CSV exported");
+  };
+
+  const exportFRExcel = () => {
+    if(!frRows.length) return showToast("No final records for "+selectedParty);
+    let csv = "Date,Time,Party,Counter,Remark,Debit,Credit,Balance\n";
+    frRows.forEach(r => { csv += r.date+","+(r.time||"")+","+r.partyId+","+(r.counterPartyId||"-")+',"'+(r.remark||"").replace(/"/g,'""')+'",'+r._debit+","+r._credit+","+r._bal+"\n"; });
+    csv += "\n\nParty,"+selectedParty+"\nTotal Groups,"+frSummary.totalGroups+"\nTotal Rows,"+frSummary.totalRows+"\nClosing Balance,"+frSummary.closingBal+"\n";
+    downloadBlob(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}), "FR_"+selectedParty+"_"+todayISO()+".csv");
+    showToast("FR Excel exported");
+  };
+
+  const exportHistory = () => {
+    let csv = "Date,Time,Action,Party,Old,New,Remark\n";
+    history.forEach(x => csv += x.dateDisplay+","+x.timeDisplay+","+x.action+","+x.partyId+","+x.oldVal+","+x.newVal+',"'+(x.remark||"").replace(/"/g,'""')+'"\n');
+    downloadBlob(new Blob([csv],{type:"text/csv"}), "history.csv");
+  };
+
+  const handleBackup = () => {
+    requirePin(() => {
+      const data = { parties, ledgers, finals, pin, companyName, history, exportedAt: new Date().toISOString() };
+      downloadBlob(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}), "backup_"+todayISO()+"_"+nowTime().replace(":","-")+".json");
+      const now = Date.now();
+      setLastBackupTime(now);
+      setBackupBannerDismissed(false);
+      showToast("Backup exported ✓ – Next due in 24 hours");
+    }, "Backup JSON");
+  };
+
+  const triggerRestore = () => { if (fileInputRef.current) fileInputRef.current.click(); };
+
+  const handleRestoreFile = (e) => {
+    const f = e.target.files[0];
+    if(!f) return;
+    e.target.value = "";
+    requirePin(() => {
+      const r = new FileReader();
+      r.onload = () => {
+        try {
+          const d = JSON.parse(r.result);
+          if(d.parties) setParties(d.parties);
+          if(d.ledgers) setLedgers(d.ledgers);
+          if(d.finals) setFinals(d.finals);
+          if(d.pin) setPin(d.pin);
+          if(d.companyName !== undefined) { setCompanyName(d.companyName || ""); setCompanyNameInput(d.companyName || ""); }
+          if(d.history) setHistory(d.history);
+          showToast("Restore OK");
+        } catch { showToast("Invalid file"); }
+      };
+      r.readAsText(f);
+    }, "Restore from backup");
+  };
+
+  const handleRemovePin = () => { requirePin(() => { if (confirm("Remove PIN?")) { setPin(""); setPinProfileMsg(""); showToast("PIN Removed"); } }, "Remove PIN"); };
+
+  const handleSaveCompanyName = () => {
+    const newName = companyNameInput.trim();
+    if (newName === companyName) { showToast("Same name – no change"); return; }
+    requirePin(() => { setCompanyName(newName); showToast(newName ? "Company name saved: " + newName : "Company name cleared"); }, newName ? "Change Company Name" : "Clear Company Name");
+  };
+
+  const handleClearCompanyName = () => { requirePin(() => { setCompanyName(""); setCompanyNameInput(""); showToast("Company name cleared"); }, "Clear Company Name"); };
+
+  const NAV = [
+    { id:"ledger", label:"LEDGER", icon:"📒" },
+    { id:"party", label:"PARTY MANAGER", icon:"👥" },
+    { id:"final", label:"FINAL REPORT", icon:"📄" },
+    { id:"trial", label:"TRIAL BALANCE", icon:"⚖️" },
+    { id:"profile", label:"PROFILE", icon:"👤" }
+  ];
+
+  const goToParty = () => { if (partyRef.current) partyRef.current.focus(); };
+  const goToCounter = () => { if (counterRef.current) counterRef.current.focus(); };
+  const goToAmount = () => { if (amountRef.current) amountRef.current.focus(); };
+  const goToRemark = () => { if (remarkRef.current) remarkRef.current.focus(); };
+  const goToAdd = () => { if (addBtnRef.current) addBtnRef.current.focus(); };
+  const goToFirstNav = () => { if (firstNavRef.current) firstNavRef.current.focus(); };
+  const goToLastNav = () => { if (lastNavRef.current) lastNavRef.current.focus(); };
+
+  const handlePartyTab = (e) => { if (e.shiftKey) { goToLastNav(); } else { goToFirstNav(); } };
+
+  const navBtns = NAV.map((n, idx) => {
+    const isFirst = idx === 0;
+    const isLast = idx === NAV.length - 1;
+    return h("button", {
+      key: n.id,
+      ref: isFirst ? firstNavRef : (isLast ? lastNavRef : null),
+      onClick: () => { setTab(n.id); if (window.innerWidth < 1024) setSidebarOpen(false); },
+      onKeyDown: (e) => {
+        if (e.key === "Tab") {
+          if (isLast && !e.shiftKey) { e.preventDefault(); goToParty(); }
+          else if (isFirst && e.shiftKey) { e.preventDefault(); goToParty(); }
+        }
+      },
+      className: "w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left " + (tab === n.id ? T.sidebarActive : T.sidebarInactive)
+    }, h("span", null, n.icon), n.label);
+  });
+
+  const header = h("header", { className:"sticky top-0 z-40 border-b flex items-center justify-between px-3 py-2 h-16 "+T.header+" "+(sidebarOpen?"lg:ml-[280px]":"ml-0") },
+    h("div", { className:"flex items-center gap-2 flex-1 min-w-0 flex-wrap" },
+      h("button", { type:"button", tabIndex: -1, onClick:()=>setSidebarOpen(v=>!v), className:"w-9 h-9 rounded-lg border flex items-center justify-center shrink-0 "+T.exportBtnAlt }, "☰"),
+      tab==="ledger" && h("label", { className:"text-[13px] font-semibold shrink-0" }, "Party:"),
+      tab==="ledger" && h(SearchableSelect, {
+        value: selectedParty + (isSelectedPartyDeactive ? " (Deactive)" : ""),
+        options: parties.map(p => ({ id:p.id, name: p.id + (p.status === "Deactive" ? " (Deactive)" : "") })),
+        onChange: (val) => { setSelectedParty(val); const alt = parties.find(p=>p.id!==val && p.status==="Active"); if(alt) setCounter(alt.id); },
+        T: T,
+        className: "text-[13px] font-bold shrink-0",
+        style: { width:"288px", minWidth:"288px" },
+        triggerRef: partyRef,
+        onTriggerKeyDown: handlePartyTab,
+        triggerTabIndex: 0
+      }),
+      tab==="ledger" && h("div", { className:"text-[20px] font-black tracking-tight shrink-0 "+(balMap.total>=0?"text-green-600":"text-red-600"), style:{fontWeight:900} }, "Closing Balance: "+fmtINR(balMap.total))
+    ),
+    tab==="ledger" && h("div", { className:"flex gap-2 shrink-0 ml-2 items-center" },
+      h("div", { className:"text-[11px] font-bold px-2 py-1 rounded-full "+(cloudSaveStatus==="saving"?"bg-amber-100 text-amber-700":cloudSaveStatus==="saved"?"bg-green-100 text-green-700":"bg-slate-100 text-slate-500") },
+        cloudSaveStatus==="saving" ? "☁️ Saving..." : cloudSaveStatus==="saved" ? "✓ Cloud Saved" : "☁️ Cloud ON"
+      ),
+      h("button", { type:"button", tabIndex: -1, onClick: exportCSV, className:"h-9 px-3 rounded-lg text-[13px] border "+T.exportBtnAlt+" whitespace-nowrap" }, "📊 Excel"),
+      h("button", { type:"button", tabIndex: -1, onClick: requestFinalClose, className:"h-9 px-4 rounded-lg text-[13px] font-bold "+T.closingBtn+" whitespace-nowrap" }, "FINAL", pin && h("span", { className:"ml-1.5 text-[10px]" }, "🔒")),
+      h("button", { type:"button", tabIndex: -1, onClick: onLogout, className:"h-9 px-3 rounded-lg text-[13px] font-bold border "+T.exportBtnAlt+" whitespace-nowrap" }, "Logout")
+    )
+  );
+
+  const sidebar = h("aside", { className:"fixed inset-y-0 left-0 w-[280px] border-r flex flex-col z-50 transition-transform "+T.sidebarBg+" "+(sidebarOpen?"translate-x-0":"-translate-x-full") },
+    h("div", { className:"h-16 flex items-center justify-end px-3 border-b" },
+      h("button", { tabIndex: -1, onClick:()=>setSidebarOpen(false), className:"w-8 h-8 rounded-lg border flex items-center justify-center "+T.exportBtnAlt }, "✕")
+    ),
+    h("div", { className:"px-3 py-2 border-b text-center" },
+      h("div", { className:"text-[13px] font-black tracking-tight text-cyan-700 truncate" }, "ULTRA LEDGER")
+    ),
+    h("div", { className:"p-3 flex flex-col gap-2 overflow-y-auto flex-1" }, navBtns),
+    h("div", { className:"p-3 border-t text-[10px] font-bold opacity-70 "+(theme==="midnight"?"border-zinc-800":"border-gray-200") },
+      h("div", null, "☁️ Cloud: ", h("b", { className:"text-green-600" }, "ON")),
+      h("div", { className:"mt-1" }, "📅 Last backup: ", lastBackupTime ? new Date(lastBackupTime).toLocaleString("en-IN") : h("b", { className:"text-red-500" }, "Never"))
+    )
+  );
+
+  const backupBanner = backupDue && !backupBannerDismissed && h("div", { className:"slide-down fixed top-0 left-0 right-0 z-[60] flex items-center justify-between px-4 py-3 shadow-lg", style:{background:"linear-gradient(90deg,#f59e0b,#d97706)"} },
+    h("div", { className:"flex items-center gap-3 text-white" },
+      h("span", { className:"text-[22px]" }, "⏰"),
+      h("div", null,
+        h("div", { className:"font-black text-[14px]" }, "Backup Due!"),
+        h("div", { className:"text-[11px] font-bold opacity-90" }, lastBackupTime ? "Last: "+new Date(lastBackupTime).toLocaleString("en-IN") : "Pehli baar backup lena hai")
+      )
+    ),
+    h("div", { className:"flex gap-2" },
+      h("button", { tabIndex: -1, onClick: handleBackup, className:"h-9 px-4 rounded-lg bg-white text-amber-800 font-black text-[13px] hover:bg-amber-50 shadow-sm" }, "📥 Download"),
+      h("button", { tabIndex: -1, onClick:()=>setBackupBannerDismissed(true), className:"w-9 h-9 rounded-lg bg-white/20 text-white font-black hover:bg-white/30" }, "✕")
+    )
+  );
+
+  const ledgerPage = h("div", { className:"p-2 h-[calc(100vh-64px)] flex flex-col" },
+    h("div", { className:"rounded-xl border p-3 flex-1 flex flex-col min-h-0 "+T.card },
+      h("div", { className:"flex items-center justify-between mb-3 flex-wrap gap-2" },
+        h("div", { className:"flex items-center gap-3 shrink-0" },
+          h("div", { className:"font-black text-[15px]" }, selectedParty+" LEDGER", isSelectedPartyDeactive && h("span", { className:"ml-2 px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 text-[10px] font-black" }, "DEACTIVE"))
+        ),
+        companyName && h("div", { className:"flex-1 text-center px-2 min-w-0" },
+          h("div", { className:"text-[16px] font-black tracking-tight text-cyan-700 truncate inline-block max-w-full" }, companyName)
+        ),
+        !companyName && h("div", { className:"flex-1" }),
+        h("div", { className:"flex gap-2 items-center shrink-0" },
+          h("button", { type:"button", tabIndex: -1, onClick: ()=>{ setFrOpen(true); setFrSearch(""); }, className: "h-8 px-3 rounded-lg border text-[12px] font-black flex items-center gap-1.5 "+T.exportBtnAlt, style: { background: "#e0f2fe", borderColor: "#7dd3fc", color: "#0369a1" } }, "📄 FR"),
+          h("input", { tabIndex: -1, value:search, onChange:e=>setSearch(e.target.value), placeholder:"Search...", className:"h-8 w-[200px] rounded-lg border px-3 text-[12.5px] "+T.input }),
+          h("div", { className:"relative" },
+            h("button", { tabIndex: -1, onClick:()=>setShowColDropdown(v=>!v), className:"h-8 px-3 rounded-lg border text-[12px] font-bold "+T.exportBtnAlt }, "Columns "+Object.values(showCols).filter(Boolean).length+"/"+Object.keys(showCols).length),
+            showColDropdown && h("div", { className:"absolute right-0 top-9 w-56 rounded-xl border shadow-2xl z-40 p-2 "+T.card },
+              Object.entries(showCols).map(([k,v]) => h("label", { key:k, className:"flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 cursor-pointer text-[13px]" },
+                h("input", { type:"checkbox", tabIndex: -1, checked:v, onChange:()=>setShowCols(s=>Object.assign({},s,{[k]:!s[k]})) }),
+                h("span", { className:v?"":"opacity-40 line-through" }, k)
+              ))
+            )
+          )
+        )
+      ),
+      h("div", { className:"rounded-lg border overflow-auto flex-1 min-h-0 "+(theme==="midnight"?"border-zinc-800 bg-[#111]":"border-gray-200 bg-white") },
+        h("table", { className:"w-full border-collapse", style:{fontSize:"13px"} },
+          h("thead", { className:"sticky top-0 z-[5] "+T.tableHeader },
+            h("tr", null,
+              showCols.date && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Date"),
+              showCols.counter && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Counter"),
+              showCols.remark && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Remark"),
+              showCols.debit && h("th", { className:"py-1.5 px-2 text-right font-black text-[12px] uppercase tracking-wide" }, "Debit"),
+              showCols.credit && h("th", { className:"py-1.5 px-2 text-right font-black text-[12px] uppercase tracking-wide" }, "Credit"),
+              showCols.balance && h("th", { className:"py-1.5 px-2 text-right font-black text-[12px] uppercase tracking-wide" }, "Balance"),
+              showCols.action && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Action")
+            )
+          ),
+          h("tbody", null,
+            filteredEntries.length===0 && h("tr", null, h("td", { colSpan:7, className:"p-6 text-center opacity-60" }, "No entries — Add new entry")),
+            filteredEntries.map(e => {
+              const bal = balMap.map.get(e.id) || 0;
+              const locked = isLocked(e);
+              return h("tr", { key:e.id, className:"border-t "+(theme==="midnight"?"border-zinc-800 hover:bg-zinc-900":"border-gray-100 hover:bg-gray-50"), style:{height:"26px"} },
+                showCols.date && h("td", { className:"py-0.5 px-2.5 font-mono text-[13px] font-semibold whitespace-nowrap" },
+                  h("span", null, dmy(e.date)),
+                  e.time && h("span", { className:"ml-2 text-[10px] opacity-60 font-bold" }, e.time.slice(0,5))
+                ),
+                showCols.counter && h("td", { className:"py-0.5 px-2.5 text-[13px] font-bold" }, e.counterPartyId||"-"),
+                showCols.remark && h("td", { className:"py-0.5 px-2.5 text-[13px] font-semibold max-w-[200px] truncate" }, e.remark||"-"),
+                showCols.debit && h("td", { className:"py-0.5 px-2 text-right font-mono text-[13px] font-bold" }, e.amount<0 ? h("span", { className:"text-red-600" }, absINR(e.amount)) : h("span", { className:"opacity-30" }, "-")),
+                showCols.credit && h("td", { className:"py-0.5 px-2 text-right font-mono text-[13px] font-bold" }, e.amount>0 ? h("span", { className:"text-green-600" }, fmtINR(e.amount)) : h("span", { className:"opacity-30" }, "-")),
+                showCols.balance && h("td", { className:"py-0.5 px-2 text-right font-mono text-[13px] font-black "+(bal<0?"text-red-600":"text-green-600") }, fmtINR(bal)),
+                showCols.action && h("td", { className:"py-0.5 px-2" },
+                  h("div", { className:"flex gap-1" },
+                    h("button", { tabIndex: -1, onClick:()=>handleModify(e), disabled:locked, className:"px-1.5 py-0.5 rounded text-[10px] font-bold border "+(locked?"opacity-20 bg-gray-100 cursor-not-allowed":T.modBtn) }, "Mod"),
+                    h("button", { tabIndex: -1, onClick:()=>handleDelete(e), disabled:locked, className:"px-1.5 py-0.5 rounded text-[10px] font-bold border "+(locked?"opacity-20 bg-gray-100 cursor-not-allowed":T.delBtn) }, "Del")
+                  )
+                )
+              );
+            }),
+            h("tr", { ref: tableEndRef }, h("td", { colSpan:7, style:{height:"1px", padding:0, border:0} }))
+          )
+        )
+      ),
+      isSelectedPartyDeactive && h("div", { className:"mt-3 p-2 rounded-lg border-2 border-dashed border-red-400 bg-red-50 text-red-700 text-[13px] font-black text-center" }, "⚠️ "+selectedParty+" is DEACTIVE – cannot add entries"),
+      h("div", { className:"mt-3 pt-3 border-t "+(theme==="midnight"?"border-zinc-800":"border-gray-200")+" flex gap-2 items-end", style: isSelectedPartyDeactive ? { opacity:0.4, pointerEvents:"none" } : {} },
+        h("div", { style:{flex:"0 0 22%"} },
+          h("label", { className:"text-[11px] font-black uppercase tracking-wide opacity-70" }, "Counter"),
+          h(SearchableSelect, {
+            value: counter,
+            options: parties.filter(p=>p.id!==selectedParty && p.status==="Active"),
+            onChange: (val) => setCounter(val),
+            T: T,
+            className: "text-[13px] font-bold",
+            dropUp: true,
+            triggerRef: counterRef,
+            triggerTabIndex: -1,
+            onSelectComplete: () => { goToAmount(); },
+            onTriggerKeyDown: (e) => { e.preventDefault(); goToParty(); }
+          })
+        ),
+        h("div", { style:{flex:"0 0 22%"} },
+          h("label", { className:"text-[11px] font-black uppercase tracking-wide opacity-70" }, "Amount"),
+          h("input", {
+            ref: amountRef,
+            tabIndex: -1,
+            value: amount,
+            onChange: e => { if (/^[+\-\d.\s\/]*$/.test(e.target.value)) setAmount(e.target.value); },
+            onKeyDown: e => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (!amount.trim()) { showToast("Enter amount"); return; }
+                goToRemark();
+              } else if (e.key === "Tab") {
+                e.preventDefault();
+                goToParty();
+              }
+            },
+            placeholder: counter && allPartyBalances[counter] !== undefined ? "Bal: " + fmtINR(allPartyBalances[counter]) : "100/200/-50",
+            className:"w-full h-10 rounded-lg border px-3 text-[15px] font-black "+T.input
+          })
+        ),
+        h("div", { style:{flex:"1"} },
+          h("label", { className:"text-[11px] font-black uppercase tracking-wide opacity-70" }, "Remark"),
+          h("input", {
+            ref: remarkRef,
+            tabIndex: -1,
+            value: remark,
+            onChange: e => setRemark(e.target.value),
+            onKeyDown: e => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                goToAdd();
+              } else if (e.key === "Tab") {
+                e.preventDefault();
+                goToParty();
+              }
+            },
+            placeholder:"Pay...",
+            className:"w-full h-10 rounded-lg border px-3 text-[13px] font-semibold "+T.input
+          })
+        ),
+        h("button", {
+          ref: addBtnRef,
+          tabIndex: -1,
+          onClick:handleAdd,
+          onKeyDown: e => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleAdd();
+            } else if (e.key === "Tab") {
+              e.preventDefault();
+              goToParty();
+            }
+          },
+          className:"h-10 px-4 rounded-lg font-black text-[14px] "+T.addBtn
+        }, "ADD")
+      )
+    )
+  );
+
+  const partyPage = h("div", { className:"p-4 max-w-5xl mx-auto w-full flex flex-col gap-4" },
+    h("div", { className:"rounded-xl border p-6 "+T.card },
+      h("div", { className:"flex justify-between items-center mb-4" },
+        h("div", { className:"font-black text-[15px]" }, "PARTY MANAGER", pin && h("span", { className:"ml-2 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300" }, "🔒 PIN Protected")),
+        h("button", { tabIndex: -1, onClick:()=>setPartyUnlocked(v=>!v), className:"h-10 px-4 rounded-full text-[13px] font-black border "+(partyUnlocked?"bg-zinc-900 text-white border-zinc-900":"bg-green-600 text-white border-green-600") }, partyUnlocked?"🔒 Locked":"🔓 Unlocked")
+      ),
+      h("div", { className:"flex gap-3" },
+        h("input", { tabIndex: -1, value:newPartyName, onChange:e=>setNewPartyName(e.target.value.toUpperCase()), disabled:partyUnlocked, placeholder:"AA BB", className:"flex-1 h-14 rounded-xl border px-4 text-[15px] font-bold "+T.input }),
+        h("button", { tabIndex: -1, onClick:addParty, disabled:partyUnlocked, className:"h-14 w-20 rounded-xl text-[14px] font-black "+(partyUnlocked?"bg-zinc-100 text-zinc-400":T.addBtn) }, "Add", pin && !partyUnlocked && h("span", { className:"ml-1 text-[10px]" }, "🔒"))
+      )
+    ),
+    h("div", { className:"rounded-xl border p-6 "+T.card },
+      h("div", { className:"flex justify-between mb-4" },
+        h("div", { className:"font-black text-[14px]" }, "ALL PARTIES"),
+        h("button", { tabIndex: -1, onClick:()=>setHistoryOpen(true), className:"h-9 px-4 rounded-full text-[12px] font-black border "+T.exportBtnAlt }, "🕐 History")
+      ),
+      h("div", { className:"divide-y "+(theme==="midnight"?"divide-zinc-800":"divide-gray-100") },
+        parties.map(p => {
+          const bal = allPartyBalances[p.id] || 0;
+          const active = p.status==="Active";
+          const frCount = finals.filter(g=>g.partyId===p.id).length;
+          return h("div", { key:p.id, className:"py-3 flex items-center justify-between gap-3" },
+            h("div", { className:"flex items-center gap-3" },
+              h("div", { className:"w-10 h-10 rounded-full flex items-center justify-center font-black "+T.logoBg }, p.id[0]),
+              h("div", null,
+                h("div", { className:"flex items-center gap-2" },
+                  h("span", { className:"font-black text-[14px]" }, p.name),
+                  h("span", { className:"px-2 py-0.5 rounded-full text-[10px] font-black border "+(active?"bg-green-100 text-green-800":"bg-red-100 text-red-800") }, p.status),
+                  frCount > 0 && h("span", { className:"px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200 text-[10px] font-black" }, "FR")
+                ),
+                h("div", { className:"text-[13px] font-bold font-mono "+(bal<0?"text-red-600":"text-green-600") }, fmtINR(bal))
+              )
+            ),
+            h("div", { className:"flex gap-2" },
+              h("button", { tabIndex: -1, onClick:()=>requestToggleActive(p), className:"h-9 px-3 rounded-full text-[12px] font-black border "+(active?"bg-green-100 text-green-800":"bg-red-100 text-red-800") }, active?"Active":"Deactive"),
+              h("button", { tabIndex: -1, onClick:()=>requestEditParty(p), className:"h-9 px-3 rounded-full text-[12px] font-black border "+T.exportBtnAlt }, "Modify")
+            )
+          );
+        })
+      )
+    )
+  );
+
+  const finalPage = h("div", { className:"p-4" },
+    h("div", { className:"max-w-[1150px] mx-auto" },
+      h("div", { className:"flex justify-between items-center mb-3 gap-2 flex-wrap" },
+        h("div", { className:"font-black text-[15px]" }, "FINAL REPORT"),
+        h("div", { className:"flex items-center gap-2 flex-wrap" },
+          h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Party:"),
+          h(SearchableSelect, { value: finalFilterParty, options: parties, onChange: (val) => setFinalFilterParty(val), T: T, placeholder: "Select Party...", className: "h-9 text-[13px] font-bold", style: { minWidth:"180px" }, triggerTabIndex: -1 }),
+          h("input", { tabIndex: -1, value: finalSearch, onChange: e => setFinalSearch(e.target.value), placeholder: "Search...", className: "h-9 w-[220px] rounded-lg border px-3 text-[12.5px] "+T.input }),
+          (finalFilterParty || finalSearch) && h("button", { tabIndex: -1, onClick: () => { setFinalFilterParty(""); setFinalSearch(""); }, className: "h-9 px-3 rounded-lg border text-[12px] font-bold "+T.exportBtnAlt }, "✕ Clear"),
+          h("button", { tabIndex: -1, disabled: !finalFilterParty, onClick:()=>{ let csv="Date,Time,Party,Counter,Remark,Debit,Credit,Balance\n"; finalRows.forEach(r=>csv+=r.date+","+(r.time||"")+","+r.partyId+","+r.counterPartyId+',"'+r.remark+'",'+r._debit+","+r._credit+","+r._bal+"\n"); downloadBlob(new Blob([csv],{type:"text/csv"}),"final_"+finalFilterParty+".csv"); }, className:"h-9 px-4 rounded-lg text-[13px] font-bold "+(finalFilterParty ? T.exportBtn : "bg-gray-200 text-gray-400 cursor-not-allowed border border-gray-300") }, "⬇️ Export")
+        )
+      ),
+      h("div", { className:"mb-2 flex gap-2 items-center flex-wrap text-[12px] font-bold opacity-70" },
+        h("span", null, "Showing: "),
+        h("span", { className:"px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200" }, finalFilterParty || "No party selected"),
+        h("span", null, " • "+finalRows.length+" rows")
+      ),
+      h("div", { className:"rounded-lg border overflow-auto max-h-[calc(100vh-260px)] "+T.card },
+        h("table", { className:"w-full", style:{fontSize:"13px"} },
+          h("thead", { className:"sticky top-0 "+T.tableHeader },
+            h("tr", null, ["Date","Party","Counter","Remark","Debit","Credit","Balance"].map(hd => h("th", { key:hd, className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, hd)))
+          ),
+          h("tbody", null,
+            finalRows.length===0 && h("tr", null, h("td", { colSpan:7, className:"p-8 text-center opacity-60 font-bold text-[14px]" }, !finalFilterParty ? "👆 Please select a party from dropdown above" : "No FINAL records for "+finalFilterParty)),
+            finalRows.map(r => h("tr", { key:r.id, className:"border-t "+(r.isClosing?"bg-cyan-300 font-bold text-black":r.isOpeningEntry?"bg-amber-50":"") , style:{height:"26px"} },
+              h("td", { className:"py-0.5 px-2.5 font-mono text-[12px] font-bold whitespace-nowrap" },
+                h("span", null, dmy(r.date)),
+                r.time && h("span", { className:"ml-2 text-[10px] opacity-60 font-bold" }, r.time.slice(0,5))
+              ),
+              h("td", { className:"py-0.5 px-2.5 font-black text-[12px]" },
+                h("span", { className:"px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-800 border border-slate-300 text-[10px]" }, r.partyId)
+              ),
+              h("td", { className:"py-0.5 px-2.5 font-bold" }, r.counterPartyId||"-"),
+              h("td", { className:"py-0.5 px-2.5 font-semibold" }, r.remark||"-"),
+              h("td", { className:"py-0.5 px-2 text-right font-mono font-bold" }, r._debit==="-"?h("span", { className:"opacity-30" }, "-"):absINR(r._debit)),
+              h("td", { className:"py-0.5 px-2 text-right font-mono font-bold" }, r._credit==="-"?h("span", { className:"opacity-30" }, "-"):fmtINR(r._credit)),
+              h("td", { className:"py-0.5 px-2 text-right font-mono font-black "+(r._bal<0?"text-red-600":"text-green-600") }, fmtINR(r._bal))
+            ))
+          )
+        )
+      )
+    )
+  );
+
+  const trialPage = h("div", { className:"p-4 max-w-6xl mx-auto w-full flex flex-col gap-4" },
+    h("div", { className:"rounded-xl border p-4 flex flex-wrap gap-3 items-center "+T.card },
+      h("span", { className:"text-[13px] font-black" }, "From"),
+      h("input", { type:"date", tabIndex: -1, value:filterFrom, onChange:e=>setFilterFrom(e.target.value), className:"h-11 rounded-lg border px-3 text-[13px] font-bold "+T.input }),
+      h("span", { className:"text-[13px] font-black" }, "To"),
+      h("input", { type:"date", tabIndex: -1, value:filterTo, onChange:e=>setFilterTo(e.target.value), className:"h-11 rounded-lg border px-3 text-[13px] font-bold "+T.input }),
+      h("button", { tabIndex: -1, onClick:()=>{setFilterFrom("");setFilterTo("");}, className:"h-11 px-5 rounded-lg border text-[13px] font-black "+T.exportBtnAlt }, "Clear")
+    ),
+    h("div", { className:"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" },
+      h("div", { className:"rounded-xl border p-6 bg-red-50 border-red-200" },
+        h("div", { className:"text-[12px] font-black text-red-800 uppercase tracking-wide" }, "TOTAL DEBIT"),
+        h("div", { className:"text-[22px] font-black text-red-600" }, absINR(trial.debit)),
+        h("div", { className:"text-[12px] font-bold text-red-600" }, trial.debitParties.length+" parties")
+      ),
+      h("div", { className:"rounded-xl border p-6 bg-green-50 border-green-200" },
+        h("div", { className:"text-[12px] font-black text-green-800 uppercase tracking-wide" }, "TOTAL CREDIT"),
+        h("div", { className:"text-[22px] font-black text-green-600" }, fmtINR(trial.credit)),
+        h("div", { className:"text-[12px] font-bold text-green-600" }, trial.creditParties.length+" parties")
+      ),
+      h("div", { className:"rounded-xl border p-6 bg-cyan-50 border-cyan-200" },
+        h("div", { className:"text-[12px] font-black text-cyan-800 uppercase tracking-wide" }, "DIFFERENCE"),
+        h("div", { className:"text-[22px] font-black text-cyan-700" }, absINR(trial.diff))
+      ),
+      h("div", { className:"rounded-xl border p-6 bg-gray-900 text-white border-gray-900" },
+        h("div", { className:"text-[12px] font-black opacity-70 uppercase tracking-wide" }, "STATUS"),
+        h("div", { className:"text-[18px] font-black" }, trial.status)
+      )
+    ),
+    h("div", { className:"grid md:grid-cols-2 gap-4" },
+      h("div", { className:"rounded-xl border overflow-hidden "+T.card },
+        h("div", { className:"p-4 font-black text-[14px] border-b uppercase tracking-wide" }, "DEBIT SECTION"),
+        h("div", { className:"p-4 space-y-2" },
+          trial.debitParties.length===0 ? h("div", { className:"text-center py-8 opacity-60 text-[13px] font-bold" }, "No debit parties") :
+          trial.debitParties.map(p => h("div", { key:p.party.id, className:"flex justify-between items-center h-12 px-4 rounded-xl border border-red-100" },
+            h("span", { className:"font-black text-[14px]" }, p.party.id),
+            h("span", { className:"font-mono font-black text-red-600 text-[14px]" }, fmtINR(p.bal))
+          ))
+        )
+      ),
+      h("div", { className:"rounded-xl border overflow-hidden "+T.card },
+        h("div", { className:"p-4 font-black text-[14px] border-b uppercase tracking-wide" }, "CREDIT SECTION"),
+        h("div", { className:"p-4 space-y-2" },
+          trial.creditParties.length===0 ? h("div", { className:"text-center py-8 opacity-60 text-[13px] font-bold" }, "No credit parties") :
+          trial.creditParties.map(p => h("div", { key:p.party.id, className:"flex justify-between items-center h-12 px-4 rounded-xl border border-green-100" },
+            h("span", { className:"font-black text-[14px]" }, p.party.id),
+            h("span", { className:"font-mono font-black text-green-600 text-[14px]" }, fmtINR(p.bal))
+          ))
+        )
+      )
+    )
+  );
+
+  const profilePage = h("div", { className:"p-4 max-w-5xl mx-auto w-full flex flex-col gap-4" },
+    h("div", { className:"rounded-xl border p-6 "+T.card },
+      h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide flex items-center gap-2" }, "🏢 COMPANY NAME", pin && h("span", { className:"text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300" }, "🔒 PIN Protected")),
+      h("div", { className:"text-[12px] font-semibold opacity-70 mb-3" }, "Ye naam Ledger page ke header me CENTER me dikhega. Khali chhodo to kuch nahi dikhega."),
+      h("div", { className:"flex gap-3 items-center flex-wrap" },
+        h("input", {
+          tabIndex: -1,
+          value: companyNameInput,
+          onChange: e => setCompanyNameInput(e.target.value),
+          placeholder:"e.g. SHAH TRADERS, ABC ENTERPRISE",
+          maxLength:80,
+          className:"flex-1 min-w-[240px] h-12 rounded-lg border px-4 text-[14px] font-bold "+T.input
+        }),
+        h("button", { tabIndex: -1, onClick: handleSaveCompanyName, className:"h-12 px-6 rounded-lg text-[13px] font-black "+T.addBtn }, "💾 Save", pin && h("span", { className:"ml-1.5 text-[10px]" }, "🔒")),
+        companyName && h("button", { tabIndex: -1, onClick: handleClearCompanyName, className:"h-12 px-4 rounded-lg bg-red-100 text-red-700 border border-red-300 text-[12px] font-black" }, "🗑️ Clear", pin && h("span", { className:"ml-1.5 text-[10px]" }, "🔒"))
+      ),
+      companyName && h("div", { className:"mt-3 p-3 rounded-lg bg-cyan-50 border border-cyan-200 flex items-center gap-2" },
+        h("span", { className:"text-[11px] font-black text-cyan-800 uppercase tracking-wide opacity-70" }, "Active:"),
+        h("span", { className:"text-[14px] font-black text-cyan-700" }, companyName)
+      )
+    ),
+    h("div", { className:"rounded-xl border p-6 "+T.card },
+      h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide" }, "🎨 THEME"),
+      h("div", { className:"grid grid-cols-1 md:grid-cols-2 gap-4" },
+        Object.entries(THEMES).map(([key, t]) => h("button", { key:key, tabIndex: -1, onClick:()=>setTheme(key), className:"h-20 rounded-xl border flex items-center justify-between px-5 "+t.card+" "+(theme===key?"ring-2 ring-black":"") },
+          h("div", { className:"flex items-center gap-3" },
+            h("div", { className:"flex -space-x-2" },
+              h("div", { className:"w-8 h-8 rounded-full border-2 border-white", style:{background:t.dot1} }),
+              h("div", { className:"w-8 h-8 rounded-full border-2 border-white", style:{background:t.dot2} })
+            ),
+            h("span", { className:"font-black text-[14px]" }, t.label)
+          ),
+          theme===key && h("span", { className:"text-[12px] font-black px-3 py-1 rounded-full bg-black text-white" }, "ACTIVE")
+        ))
+      )
+    ),
+    h("div", { className:"rounded-xl border p-6 "+T.card },
+      h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide flex items-center gap-2" }, "🔐 PIN SECURITY", pin && h("span", { className:"text-[11px] px-2 py-0.5 rounded-full bg-green-100 text-green-800 border border-green-300" }, "PIN is SET")),
+      !pin ? h("div", { className:"flex flex-col gap-3" },
+        h("div", { className:"text-[12px] font-semibold opacity-70" }, "Set a PIN to protect: ", h("b", null, "FINAL, Party Add/Modify/Active, Company Name, Backup, Restore, Remove PIN")),
+        h("div", { className:"flex gap-3 items-center flex-wrap" },
+          h("input", { type:"password", tabIndex: -1, maxLength:6, value: pinInputProfile, onChange: e => { setPinInputProfile(e.target.value.replace(/[^0-9]/g, "")); setPinProfileMsg(""); }, placeholder:"Enter 4-6 digit PIN", className:"h-12 rounded-lg border px-4 text-[14px] font-bold w-[220px] tracking-widest "+T.input }),
+          h("button", { tabIndex: -1, onClick: () => { if (pinInputProfile.length < 4) { setPinProfileMsg("PIN must be at least 4 digits"); return; } setPin(pinInputProfile); setPinInputProfile(""); setPinProfileMsg(""); showToast("PIN Set Successfully"); }, className:"h-12 px-6 rounded-lg text-[13px] font-black "+T.addBtn }, "Set PIN")
+        ),
+        pinProfileMsg && h("div", { className:"text-[12px] font-bold text-red-600" }, pinProfileMsg)
+      ) : h("div", { className:"flex flex-col gap-3" },
+        h("div", { className:"text-[12px] font-semibold text-green-700" }, "✅ PIN is SET"),
+        h("div", { className:"flex gap-3 items-center flex-wrap" },
+          h("span", { className:"px-4 py-2 rounded-lg border bg-green-50 text-green-800 text-[13px] font-black tracking-widest" }, "PIN: "+"●".repeat(pin.length)),
+          h("button", { tabIndex: -1, onClick: handleRemovePin, className:"h-10 px-4 rounded-lg bg-red-100 text-red-700 border border-red-300 text-[12px] font-black" }, "🗑️ Remove PIN 🔒")
+        )
+      )
+    ),
+    h("div", { className:"rounded-xl border p-6 "+T.card },
+      h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide" }, "💾 BACKUP & RESTORE", pin && h("span", { className:"ml-2 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300" }, "🔒 PIN Protected")),
+      h("div", { className:"flex gap-3 flex-wrap" },
+        h("button", { tabIndex: -1, onClick: handleBackup, className:"h-12 px-6 rounded-lg text-[13px] font-black border "+T.exportBtnAlt }, "⬇️ Backup JSON", pin && h("span", { className:"ml-1.5 text-[11px]" }, "🔒")),
+        h("button", { tabIndex: -1, onClick: triggerRestore, className:"h-12 px-6 rounded-lg text-[13px] font-black border "+T.exportBtnAlt }, "⬆️ Restore", pin && h("span", { className:"ml-1.5 text-[11px]" }, "🔒")),
+        h("input", { ref: fileInputRef, type:"file", accept:".json", onChange: handleRestoreFile, className:"hidden" })
+      )
+    )
+  );
+
+  const pages = { ledger:ledgerPage, party:partyPage, final:finalPage, trial:trialPage, profile:profilePage };
+
+  const modal = (children, onClose) => h("div", { className:"fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick:onClose },
+    h("div", { className:"w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick:e=>e.stopPropagation() }, children)
+  );
+
+  return h("div", { className:"min-h-screen flex flex-col "+T.pageBg+" "+T.text },
+    backupBanner,
+    header,
+    h("div", { className:"flex flex-1 relative" },
+      sidebarOpen && h("div", { className:"fixed inset-0 bg-black/40 z-40 lg:hidden", onClick:()=>setSidebarOpen(false) }),
+      sidebar,
+      h("main", { className:"flex-1 min-w-0 flex flex-col overflow-auto "+(sidebarOpen?"lg:ml-[280px]":"ml-0") }, pages[tab])
+    ),
+
+    editEntry && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "Modify Transaction"),
+      h("div", { key:"b", className:"space-y-3" },
+        h("div", null, h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Date"), h("input", { type:"date", value:editForm.date, onChange:e=>setEditForm(Object.assign({},editForm,{date:e.target.value})), className:"w-full h-10 rounded-lg border px-3 text-[13px] font-bold "+T.input })),
+        h("div", null, h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Counter"), h(SearchableSelect, { value: editForm.counter, options: parties.filter(p=>p.id!==editEntry.partyId), onChange: (val) => setEditForm(Object.assign({},editForm,{counter:val})), T: T, className: "text-[13px] font-bold", triggerTabIndex: -1 })),
+        h("div", null, h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Amount"), h("input", { value:editForm.amount, onChange:e=>setEditForm(Object.assign({},editForm,{amount:e.target.value})), className:"w-full h-10 rounded-lg border px-3 text-[15px] font-black "+T.input })),
+        h("div", null, h("label", { className:"text-[12px] font-black uppercase tracking-wide opacity-70" }, "Remark"), h("input", { value:editForm.remark, onChange:e=>setEditForm(Object.assign({},editForm,{remark:e.target.value})), className:"w-full h-10 rounded-lg border px-3 text-[13px] font-semibold "+T.input })),
+        h("div", { className:"flex gap-2 pt-2" },
+          h("button", { onClick:()=>setEditEntry(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+          h("button", { onClick:saveModify, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+T.addBtn }, "Save")
+        )
+      )
+    ], ()=>setEditEntry(null)),
+
+    deleteEntry && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "Delete Entry?"),
+      h("p", { key:"p", className:"text-[13px] font-semibold mb-4" }, "Delete from both "+deleteEntry.partyId+" and "+(deleteEntry.counterPartyId||"-")+"?"),
+      h("div", { key:"b", className:"flex gap-2" },
+        h("button", { onClick:()=>setDeleteEntry(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick:confirmDelete, className:"flex-1 h-11 rounded-lg bg-red-600 text-white font-black text-[13px]" }, "Delete Both")
+      )
+    ], ()=>setDeleteEntry(null)),
+
+    confirmFinal && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "FINAL Closing – "+selectedParty+"?"),
+      h("p", { key:"p", className:"text-[13px] font-semibold mb-4" }, "Move entries (Balance "+fmtINR(balMap.total)+") to Final Report."),
+      h("div", { key:"b", className:"flex gap-2" },
+        h("button", { onClick:()=>setConfirmFinal(false), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick:doFinalClose, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+T.closingBtn }, "Confirm FINAL")
+      )
+    ], ()=>setConfirmFinal(false)),
+
+    lockedInfo && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "🔒 Entry Locked"),
+      h("p", { key:"p", className:"text-[13px] font-semibold mb-4" }, lockedInfo.reason),
+      h("button", { key:"b", onClick:()=>setLockedInfo(null), className:"w-full h-11 rounded-lg bg-black text-white font-black text-[13px]" }, "OK")
+    ], ()=>setLockedInfo(null)),
+
+    partyConfirm && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, 'Create Party "'+partyConfirm.name+'" ?'),
+      h("div", { key:"b", className:"flex gap-2" },
+        h("button", { onClick:()=>setPartyConfirm(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick:confirmAddParty, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+T.addBtn }, "Yes, Create")
+      )
+    ], ()=>setPartyConfirm(null)),
+
+    toggleConfirm && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, toggleConfirm.next+" "+toggleConfirm.party.id+" ?"),
+      h("p", { key:"p", className:"text-[13px] font-semibold mb-4" }, "Balance "+fmtINR(allPartyBalances[toggleConfirm.party.id]||0)),
+      h("div", { key:"b", className:"flex gap-2" },
+        h("button", { onClick:()=>setToggleConfirm(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "No"),
+        h("button", { onClick:confirmToggle, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+(toggleConfirm.next==="Deactive"?"bg-red-600 text-white":T.addBtn) }, "Yes – "+toggleConfirm.next)
+      )
+    ], ()=>setToggleConfirm(null)),
+
+    editParty && modal([
+      h("div", { key:"t", className:"font-black text-[15px] mb-3" }, "Modify Party – "+editParty.id),
+      h("input", { key:"i", value:editPartyName, onChange:e=>setEditPartyName(e.target.value.toUpperCase()), className:"w-full h-11 rounded-lg border px-3 text-[15px] font-black "+T.input }),
+      h("div", { key:"b", className:"flex gap-2 mt-3" },
+        h("button", { onClick:()=>setEditParty(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick:savePartyEdit, className:"flex-1 h-11 rounded-lg font-black text-[13px] "+T.addBtn }, "Save")
+      )
+    ], ()=>setEditParty(null)),
+
+    historyOpen && h("div", { className:"fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-2 md:p-4", onClick:()=>setHistoryOpen(false) },
+      h("div", { className:"w-full max-w-5xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] "+T.card, onClick:e=>e.stopPropagation() },
+        h("div", { className:"bg-gray-900 text-white px-4 py-3 flex justify-between" },
+          h("div", { className:"font-black text-[14px] uppercase tracking-wide" }, "PARTY HISTORY"),
+          h("button", { onClick:()=>setHistoryOpen(false), className:"w-7 h-7 rounded bg-white/20 font-bold" }, "✕")
+        ),
+        h("div", { className:"px-3 py-2 border-b flex justify-between" },
+          h("select", { value:historyFilter, onChange:e=>setHistoryFilter(e.target.value), className:"h-8 rounded border px-2 text-[12px] font-bold "+T.input }, h("option", null, "All"), parties.map(p => h("option", { key:p.id }, p.id))),
+          h("button", { onClick:exportHistory, className:"h-8 px-3 rounded text-[12px] font-black "+T.exportBtn }, "Export")
+        ),
+        h("div", { className:"overflow-auto flex-1" },
+          h("table", { className:"w-full", style:{fontSize:"13px"} },
+            h("thead", { className:T.tableHeader }, h("tr", null, ["Date","Time","Action","Party","Old","New","Remark"].map(x => h("th", { key:x, className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, x)))),
+            h("tbody", null, (historyFilter==="All"?history:history.filter(x=>x.partyId===historyFilter||x.oldVal===historyFilter||x.newVal===historyFilter)).map(x => h("tr", { key:x.id, className:"border-t" },
+              h("td", { className:"py-1.5 px-2.5 font-mono text-[12px] font-bold" }, x.dateDisplay),
+              h("td", { className:"py-1.5 px-2.5 font-bold" }, x.timeDisplay),
+              h("td", { className:"py-1.5 px-2.5" }, h("span", { className:"px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black" }, x.action)),
+              h("td", { className:"py-1.5 px-2.5 font-black text-[13px]" }, x.partyId),
+              h("td", { className:"py-1.5 px-2.5 font-mono font-bold text-[12px]" }, x.oldVal),
+              h("td", { className:"py-1.5 px-2.5 font-mono font-bold text-[12px]" }, x.newVal),
+              h("td", { className:"py-1.5 px-2.5 font-semibold truncate max-w-[200px]" }, x.remark)
+            )))
+          )
+        )
+      )
+    ),
+
+    frOpen && h("div", { className:"fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-2 md:p-4", onClick:()=>setFrOpen(false) },
+      h("div", { className:"w-full max-w-[1100px] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] "+T.card, onClick:e=>e.stopPropagation() },
+        h("div", { className:"px-4 py-3 flex justify-between items-center shrink-0", style:{background:"linear-gradient(90deg,#0369a1,#0891b2)"} },
+          h("div", { className:"flex items-center gap-3 text-white" },
+            h("span", { className:"text-[20px]" }, "📄"),
+            h("div", null,
+              h("div", { className:"font-black text-[15px] tracking-wide" }, "FINAL REPORT – "+selectedParty),
+              h("div", { className:"text-[11px] opacity-90 font-bold" }, "Groups: "+frSummary.totalGroups+" • Rows: "+frSummary.totalRows+" • Closing: "+fmtINR(frSummary.closingBal))
+            )
+          ),
+          h("button", { onClick:()=>setFrOpen(false), className:"w-8 h-8 rounded-lg bg-white/20 text-white font-black text-[14px]" }, "✕")
+        ),
+        h("div", { className:"px-3 py-2 border-b flex justify-between items-center flex-wrap gap-2 shrink-0 "+T.card },
+          h("input", { value: frSearch, onChange: e => setFrSearch(e.target.value), placeholder: "Search...", className: "h-9 w-[280px] rounded-lg border px-3 text-[12.5px] "+T.input }),
+          h("div", { className:"flex gap-2 items-center" },
+            frSearch && h("button", { onClick:()=>setFrSearch(""), className:"h-9 px-3 rounded-lg border text-[12px] font-bold "+T.exportBtnAlt }, "✕"),
+            h("span", { className:"text-[11px] font-black opacity-60 px-2" }, frRows.length+" rows"),
+            h("button", { type:"button", onClick: exportFRExcel, className:"h-9 px-4 rounded-lg text-[13px] font-black bg-emerald-600 text-white hover:bg-emerald-700" }, "📊 Excel"),
+            h("button", { onClick:()=>setFrOpen(false), className:"h-9 px-4 rounded-lg border text-[13px] font-bold "+T.exportBtnAlt }, "Close")
+          )
+        ),
+        h("div", { className:"overflow-auto flex-1" },
+          h("table", { className:"w-full", style:{fontSize:"13px"} },
+            h("thead", { className:"sticky top-0 z-[5] "+T.tableHeader },
+              h("tr", null, ["Date","Counter","Remark","Debit","Credit","Balance"].map(hd => h("th", { key:hd, className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, hd)))
+            ),
+            h("tbody", null,
+              frRows.length===0 && h("tr", null, h("td", { colSpan:6, className:"p-8 text-center opacity-60 font-bold" }, "No FINAL records for "+selectedParty)),
+              frRows.map(r => h("tr", { key:r.id, className:"border-t "+(r.isClosing?"bg-cyan-300 font-bold text-black":r.isOpeningEntry?"bg-amber-50":""), style:{height:"26px"} },
+                h("td", { className:"py-0.5 px-2.5 font-mono text-[12px] font-bold whitespace-nowrap" },
+                  h("span", null, dmy(r.date)),
+                  r.time && h("span", { className:"ml-2 text-[10px] opacity-60 font-bold" }, r.time.slice(0,5))
+                ),
+                h("td", { className:"py-0.5 px-2.5 font-bold" }, r.counterPartyId||"-"),
+                h("td", { className:"py-0.5 px-2.5 font-semibold" }, r.remark||"-"),
+                h("td", { className:"py-0.5 px-2 text-right font-mono font-bold" }, r._debit==="-"?h("span", { className:"opacity-30" }, "-"):absINR(r._debit)),
+                h("td", { className:"py-0.5 px-2 text-right font-mono font-bold" }, r._credit==="-"?h("span", { className:"opacity-30" }, "-"):fmtINR(r._credit)),
+                h("td", { className:"py-0.5 px-2 text-right font-mono font-black "+(r._bal<0?"text-red-600":"text-green-600") }, fmtINR(r._bal))
+              ))
+            )
+          )
+        )
+      )
+    ),
+
+    pinPrompt && h("div", { className:"fixed inset-0 z-[95] bg-black/70 flex items-center justify-center p-4", onClick:()=>setPinPrompt(null) },
+      h("div", { className:"w-full max-w-[400px] rounded-xl border bg-white shadow-2xl p-5 flex flex-col gap-3", onClick:e=>e.stopPropagation() },
+        h("div", { className:"flex items-start justify-between" },
+          h("div", { className:"w-10 h-10 rounded-full bg-amber-100 border border-amber-300 text-amber-700 flex items-center justify-center text-[18px]" }, "🔐"),
+          h("button", { onClick:()=>setPinPrompt(null), className:"w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 font-bold text-[14px]" }, "✕")
+        ),
+        h("div", { className:"font-black text-[15px] text-gray-900" }, "PIN Required"),
+        h("div", { className:"text-[12px] font-semibold text-gray-600" }, "Enter PIN to confirm: ", h("b", { className:"text-amber-800" }, pinPrompt.label)),
+        h("input", { type:"password", autoFocus:true, maxLength:6, value: pinPromptInput, onChange: e => { setPinPromptInput(e.target.value.replace(/[^0-9]/g, "")); setPinPromptErr(""); }, onKeyDown: e => { if (e.key === "Enter") { e.preventDefault(); confirmPinPrompt(); } else if (e.key === "Escape") { setPinPrompt(null); } }, placeholder:"Enter PIN", className:"w-full h-12 rounded-lg border-2 border-gray-300 px-4 text-[18px] font-black tracking-widest text-center outline-none focus:border-black" }),
+        pinPromptErr && h("div", { className:"text-[12px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center" }, pinPromptErr),
+        h("div", { className:"flex gap-2 pt-1" },
+          h("button", { onClick:()=>setPinPrompt(null), className:"flex-1 h-11 rounded-lg border text-[13px] font-bold bg-white text-gray-700 border-gray-300" }, "Cancel"),
+          h("button", { onClick:confirmPinPrompt, className:"flex-1 h-11 rounded-lg bg-black text-white font-black text-[13px]" }, "Confirm")
+        )
+      )
+    ),
+
+    toast && h("div", { className:"fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-full bg-black text-white text-[14px] font-black shadow-2xl" }, "✓ "+toast)
+  );
+}
+
+function MainApp() {
+  const [session, setSession] = useState(null);
+  const [cloudState, setCloudState] = useState(null);
+  const [ready, setReady] = useState(false);
+  const [bootMsg, setBootMsg] = useState("Connecting...");
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const [companyId, setCompanyId] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) await loadAll(session);
+      else setReady(true);
+    })();
+    const { data: sub } = sb.auth.onAuthStateChange((event, sess) => {
+      if (event === "SIGNED_OUT") { setSession(null); setCloudState(null); setCompanyId(null); }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  async function loadAll(sess) {
+    try {
+      setBootMsg("Loading profile...");
+      const { data: prof } = await sb.from("profiles").select("*").eq("id", sess.user.id).single();
+      if (!prof || !prof.company_id) { await sb.auth.signOut(); setReady(true); return; }
+      setCompanyId(prof.company_id);
+      setSession(sess);
+      setBootMsg("Loading ledger...");
+      const { data: st } = await sb.from("company_state").select("state").eq("company_id", prof.company_id).single();
+      if (st && st.state) setCloudState(st.state);
+      else {
+        const cached = await idbLoad("cache_" + prof.company_id);
+        setCloudState(cached || { parties: SEED_PARTIES, ledgers: SEED_OPEN, finals: [], history: [], companyName: "", theme: "ocean", pin: "", lastBackupTime: 0 });
+      }
+      setReady(true);
+    } catch (e) { console.error(e); setReady(true); }
+  }
+
+  async function saveCloud(newState) {
+    if (!companyId || !session) return;
+    setSaveStatus("saving");
+    try {
+      await sb.from("company_state").upsert({
+        company_id: companyId,
+        state: newState,
+        updated_at: new Date().toISOString(),
+        updated_by: session.user.id
+      }, { onConflict: "company_id" });
+      setSaveStatus("saved");
+      try { await idbSave("cache_" + companyId, newState); } catch(e) {}
+      setTimeout(() => setSaveStatus("idle"), 1500);
+    } catch (e) { console.error("Save err:", e); setSaveStatus("idle"); }
+  }
+
+  if (!ready) return h("div", { className:"min-h-screen flex items-center justify-center bg-slate-50" },
+    h("div", { className:"text-center" },
+      h("div", { className:"text-[40px] mb-3" }, "📒"),
+      h("div", { className:"text-[15px] font-black text-slate-700" }, bootMsg)));
+
+  if (!session) return h(LoginScreen, { onLogin: loadAll });
+  return h(OriginalApp, { onLogout: () => sb.auth.signOut(), cloudState, saveCloud, cloudSaveStatus: saveStatus });
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(h(MainApp));
+</script>
+</body>
+</html>
