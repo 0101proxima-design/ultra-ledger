@@ -371,7 +371,7 @@ function ChangePasswordCard({ T }) {
   );
 }
 
-function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile }) {
+function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile, companyId }) {
   const [loaded, setLoaded] = useState(true);
   const [theme, setTheme] = useState((cloudState && cloudState.theme) || "ocean");
   const [tab, setTab] = useState("ledger");
@@ -446,7 +446,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       if (saveCloud) {
         saveCloud({ parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter });
       }
-    }, 800);
+    }, 300);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, loaded]);
 
@@ -558,6 +558,22 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const showToast = (msg) => setToast(msg);
 
+  // ═══════════════ SAFE LOGOUT (saves to cloud first!) ═══════════════
+  const safeLogout = async () => {
+    try {
+      if (saveCloud) {
+        await saveCloud({ parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter });
+      }
+      try { 
+        await idbSave("cache_" + (companyId || "default"), { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter }); 
+      } catch(e) {}
+      await onLogout();
+    } catch (e) {
+      console.error("Logout save error:", e);
+      await onLogout();
+    }
+  };
+
   const requirePin = (runFn, label) => {
     if (!pin) return runFn();
     setPinPrompt({ run: runFn, label: label || "Confirmation" });
@@ -582,7 +598,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     return nums;
   };
 
-  // ═══════════════ USER TAG HELPER ═══════════════
   const getUserTag = () => "(" + (profile?.full_name || profile?.username || "user") + ")";
 
   const handleAdd = () => {
@@ -837,7 +852,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       ),
       h("button", { type:"button", tabIndex: -1, onClick: exportCSV, className:"h-9 px-3 rounded-lg text-[13px] border "+T.exportBtnAlt+" whitespace-nowrap" }, "📊 Excel"),
       h("button", { type:"button", tabIndex: -1, onClick: requestFinalClose, className:"h-9 px-4 rounded-lg text-[13px] font-bold "+T.closingBtn+" whitespace-nowrap" }, "FINAL", pin && h("span", { className:"ml-1.5 text-[10px]" }, "🔒")),
-      h("button", { type:"button", tabIndex: -1, onClick: onLogout, className:"h-9 px-3 rounded-lg text-[13px] font-bold border "+T.exportBtnAlt+" whitespace-nowrap" }, "Logout")
+      h("button", { type:"button", tabIndex: -1, onClick: safeLogout, className:"h-9 px-3 rounded-lg text-[13px] font-bold border "+T.exportBtnAlt+" whitespace-nowrap" }, "Logout")
     )
   );
 
@@ -1464,7 +1479,14 @@ function MainApp() {
       h("div", { className:"text-[15px] font-black text-slate-700" }, bootMsg)));
 
   if (!session) return h(LoginScreen, { onLogin: loadAll });
-  return h(OriginalApp, { onLogout: () => sb.auth.signOut(), cloudState, saveCloud, cloudSaveStatus: saveStatus, profile: profile });
+  return h(OriginalApp, { 
+    onLogout: () => sb.auth.signOut(), 
+    cloudState, 
+    saveCloud, 
+    cloudSaveStatus: saveStatus, 
+    profile: profile,
+    companyId: companyId
+  });
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(h(MainApp));
