@@ -200,7 +200,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const [pinPromptInput, setPinPromptInput] = useState("");
   const [pinPromptErr, setPinPromptErr] = useState("");
   const [lastBackupTime, setLastBackupTime] = useState((cloudState && cloudState.lastBackupTime) || 0);
-  const [theme, setTheme] = useState((cloudState && cloudState.theme) || "ocean");
 
   const amountRef = useRef(null);
   const remarkRef = useRef(null);
@@ -209,27 +208,25 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const fileInputRef = useRef(null);
   const saveTimerRef = useRef(null);
   const skipSaveRef = useRef(true);
-  const stateRef = useRef({});
-  stateRef.current = { parties, ledgers, finals, pin, theme, companyName, history, lastBackupTime, selectedParty, counter };
 
   useEffect(() => { setTimeout(() => { skipSaveRef.current = false; }, 1500); }, []);
 
-  // INSTANT local save (every change)
+  // INSTANT local save
   useEffect(() => {
     if (skipSaveRef.current) return;
-    const snap = { parties, ledgers, finals, pin, theme, companyName, history, lastBackupTime, selectedParty, counter, savedAt: Date.now() };
+    const snap = { parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter, savedAt: Date.now() };
     try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
-  }, [parties, ledgers, finals, pin, theme, companyName, history, lastBackupTime, selectedParty, counter, companyId]);
+  }, [parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter, companyId]);
 
-  // Cloud save (debounced 500ms)
+  // Cloud save (debounced)
   useEffect(() => {
     if (skipSaveRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      if (saveCloud) saveCloud({ parties, ledgers, finals, pin, theme, companyName, history, lastBackupTime, selectedParty, counter, savedAt: Date.now() });
+      if (saveCloud) saveCloud({ parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter, savedAt: Date.now() });
     }, 500);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [parties, ledgers, finals, pin, theme, companyName, history, lastBackupTime, selectedParty, counter]);
+  }, [parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter]);
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 2500); return () => clearTimeout(t); } }, [toast]);
   useEffect(() => { if (tab !== "ledger") return; const t = setTimeout(() => { if (counterRef.current) counterRef.current.focus(); }, 350); return () => clearTimeout(t); }, [tab, selectedParty]);
@@ -275,9 +272,9 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       g.entries.forEach(e => {
         const isCF = e.carryForward === true;
         if (!isCF) run += e.amount;
-        out.push({ id: e.id, partyId: g.partyId, date: e.date, time: e.time, counterPartyId: isCF ? "B/F" : e.counterPartyId, remark: isCF ? "Opening" : e.remark, _debit: (!isCF && e.amount < 0) ? Math.abs(e.amount).toString() : "-", _credit: (!isCF && e.amount > 0) ? e.amount.toString() : "-", _bal: run, isClosing: false, isOpeningEntry: isCF });
+        out.push({ id: e.id, partyId: g.partyId, date: e.date, counterPartyId: isCF ? "B/F" : e.counterPartyId, remark: isCF ? "Opening" : e.remark, _debit: (!isCF && e.amount < 0) ? Math.abs(e.amount).toString() : "-", _credit: (!isCF && e.amount > 0) ? e.amount.toString() : "-", _bal: run, isClosing: false, isOpeningEntry: isCF });
       });
-      out.push({ id: "closing_" + g.id, partyId: g.partyId, date: g.closedAt, time: "", counterPartyId: "-", remark: "FINAL CLOSING • " + g.partyId, _debit: "-", _credit: "-", _bal: run, isClosing: true });
+      out.push({ id: "closing_" + g.id, partyId: g.partyId, date: g.closedAt, counterPartyId: "-", remark: "FINAL CLOSING • " + g.partyId, _debit: "-", _credit: "-", _bal: run, isClosing: true });
     });
     return out;
   }, [finals, finalFilter]);
@@ -291,9 +288,9 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       g.entries.forEach(e => {
         const isCF = e.carryForward === true;
         if (!isCF) run += e.amount;
-        out.push({ id: e.id, date: e.date, time: e.time, counterPartyId: isCF ? "B/F" : e.counterPartyId, remark: isCF ? "Opening" : e.remark, _debit: (!isCF && e.amount < 0) ? Math.abs(e.amount).toString() : "-", _credit: (!isCF && e.amount > 0) ? e.amount.toString() : "-", _bal: run, isClosing: false, isOpeningEntry: isCF });
+        out.push({ id: e.id, date: e.date, counterPartyId: isCF ? "B/F" : e.counterPartyId, remark: isCF ? "Opening" : e.remark, _debit: (!isCF && e.amount < 0) ? Math.abs(e.amount).toString() : "-", _credit: (!isCF && e.amount > 0) ? e.amount.toString() : "-", _bal: run, isClosing: false, isOpeningEntry: isCF });
       });
-      out.push({ id: "closing_" + g.id, date: g.closedAt, time: "", counterPartyId: "-", remark: "FINAL CLOSING • " + g.partyId, _debit: "-", _credit: "-", _bal: run, isClosing: true });
+      out.push({ id: "closing_" + g.id, date: g.closedAt, counterPartyId: "-", remark: "FINAL CLOSING • " + g.partyId, _debit: "-", _credit: "-", _bal: run, isClosing: true });
     });
     return out;
   }, [finals, selectedParty]);
@@ -302,7 +299,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const safeLogout = async () => {
     try {
-      const snap = { parties, ledgers, finals, pin, theme, companyName, history, lastBackupTime, selectedParty, counter, savedAt: Date.now() };
+      const snap = { parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter, savedAt: Date.now() };
       try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
       if (saveCloud) { try { await saveCloud(snap); } catch(e) { console.error(e); } }
       await new Promise(r => setTimeout(r, 400));
@@ -447,8 +444,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   };
 
   const exportFR = () => {
-    let csv = "Date,Time,Counter,Remark,Debit,Credit,Balance\n";
-    frRows.forEach(r => { csv += r.date + "," + (r.time || "") + "," + (r.counterPartyId || "-") + ',"' + (r.remark || "").replace(/"/g, '""') + '",' + r._debit + "," + r._credit + "," + r._bal + "\n"; });
+    let csv = "Date,Counter,Remark,Debit,Credit,Balance\n";
+    frRows.forEach(r => { csv += r.date + "," + (r.counterPartyId || "-") + ',"' + (r.remark || "").replace(/"/g, '""') + '",' + r._debit + "," + r._credit + "," + r._bal + "\n"; });
     downloadBlob(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }), "FR_" + selectedParty + "_" + todayISO() + ".csv");
     showToast("FR Excel exported");
   };
@@ -498,12 +495,16 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     { id: "profile", label: "PROFILE", icon: "👤" }
   ];
 
+  const partyOptions = parties.map(p => h("option", { key: p.id, value: p.id }, p.id + (p.status === "Deactive" ? " (Deactive)" : "")));
+
   const header = h("header", { className: "sticky top-0 z-40 border-b flex items-center justify-between px-3 py-2 h-16 " + T.header },
     h("div", { className: "flex items-center gap-2 flex-1 min-w-0 flex-wrap" },
       h("label", { className: "text-[13px] font-semibold" }, "Party:"),
-      h("select", { value: selectedParty, onChange: e => { setSelectedParty(e.target.value); const alt = parties.find(p => p.id !== e.target.value && p.status === "Active"); if (alt) setCounter(alt.id); },
-        className: "h-10 rounded-lg border px-3 text-[13px] font-bold " + T.input },
-        parties.map(p => h("option", { key: p.id, value: p.id }, p.id + (p.status === "Deactive" ? " (Deactive)" : "")))),
+      h("select", {
+        value: selectedParty,
+        onChange: (e) => { setSelectedParty(e.target.value); const alt = parties.find(p => p.id !== e.target.value && p.status === "Active"); if (alt) setCounter(alt.id); },
+        className: "h-10 rounded-lg border px-3 text-[13px] font-bold " + T.input
+      }, partyOptions),
       h("div", { className: "text-[18px] font-black " + (balMap.total >= 0 ? "text-green-600" : "text-red-600") }, "Balance: " + fmtINR(balMap.total))),
     h("div", { className: "flex gap-2 items-center" },
       h("div", { className: "text-[11px] font-bold px-2 py-1 rounded-full " + (cloudSaveStatus === "saving" ? "bg-amber-100 text-amber-700" : cloudSaveStatus === "saved" ? "bg-green-100 text-green-700" : cloudSaveStatus === "error" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500") },
@@ -606,7 +607,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       h("div", { className: "flex items-center gap-2 mb-3 flex-wrap" },
         h("div", { className: "font-black text-[14px]" }, "FINAL REPORT"),
         h("select", { value: finalFilter, onChange: e => setFinalFilter(e.target.value), className: "h-9 rounded-lg border px-3 text-[13px] font-bold " + T.input },
-          h("option", { value: "" }, "Select Party..."), parties.map(p => h("option", { key: p.id, value: p.id }, p.id)))),
+          h("option", { value: "" }, "Select Party..."),
+          parties.map(p => h("option", { key: p.id, value: p.id }, p.id)))),
       h("div", { className: "rounded-lg border overflow-auto max-h-[calc(100vh-200px)] " + T.card },
         h("table", { className: "w-full" },
           h("thead", { className: "sticky top-0 " + T.tableHeader },
@@ -818,7 +820,6 @@ function MainApp() {
       setSession(sess);
       setBootMsg("Loading ledger...");
 
-      // Load cloud
       let cloudData = null;
       try {
         const { data: st } = await sb.from("company_state").select("state").eq("company_id", prof.company_id).maybeSingle();
@@ -826,14 +827,12 @@ function MainApp() {
         console.log("☁️ Cloud:", cloudData ? (cloudData.ledgers || []).length + " entries" : "none");
       } catch(e) { console.error(e); }
 
-      // Load local
       let localData = null;
       try {
         const raw = localStorage.getItem("ul_state_" + prof.company_id);
         if (raw) { localData = JSON.parse(raw); console.log("💾 Local:", (localData.ledgers || []).length + " entries"); }
       } catch(e) {}
 
-      // Pick whichever has MORE entries (or newer if tied)
       const candidates = [cloudData, localData].filter(d => d && Array.isArray(d.ledgers));
       let finalState;
       if (candidates.length === 0) {
