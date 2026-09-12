@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +8,10 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<style>
+  body { margin: 0; padding: 0; font-family: Inter, Arial, sans-serif; }
+  * { box-sizing: border-box; }
+</style>
 </head>
 <body>
 <div id="root"></div>
@@ -15,6 +19,7 @@
 var h = React.createElement;
 var useState = React.useState;
 var useEffect = React.useEffect;
+var useMemo = React.useMemo;
 var useRef = React.useRef;
 
 var SB_URL = "https://kzgqsjbayluqyhjhytkt.supabase.co";
@@ -24,462 +29,1395 @@ var DOMAIN = "@ultraledger.local";
 
 console.log("App starting");
 
-function App() {
-  var s1 = useState("loading");
-  var stage = s1[0], setStage = s1[1];
+function fmtINR(n) {
+  if (isNaN(n)) return "₹0/-";
+  return "₹" + Number(n).toLocaleString("en-IN") + "/-";
+}
+function absINR(n) {
+  return "₹" + Math.abs(n).toLocaleString("en-IN") + "/-";
+}
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+function nowTime() {
+  var d = new Date();
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+function dmy(iso) {
+  if (!iso) return "-";
+  var p = iso.split("-");
+  return (p.length === 3 && p[0].length === 4) ? p[2] + "-" + p[1] + "-" + p[0] : iso;
+}
 
-  var s2 = useState(null);
-  var session = s2[0], setSession = s2[1];
+var SEED_PARTIES = [
+  { id: "AA", name: "AA", status: "Active" },
+  { id: "BB", name: "BB", status: "Active" }
+];
 
-  var s3 = useState(null);
-  var profile = s3[0], setProfile = s3[1];
+function LoginScreen(props) {
+  var st1 = useState("");
+  var u = st1[0], setU = st1[1];
+  var st2 = useState("");
+  var p = st2[0], setP = st2[1];
+  var st3 = useState(false);
+  var busy = st3[0], setBusy = st3[1];
+  var st4 = useState("");
+  var err = st4[0], setErr = st4[1];
 
-  var s4 = useState("");
-  var u = s4[0], setU = s4[1];
-
-  var s5 = useState("");
-  var p = s5[0], setP = s5[1];
-
-  var s6 = useState("");
-  var err = s6[0], setErr = s6[1];
-
-  var s7 = useState([]);
-  var parties = s7[0], setParties = s7[1];
-
-  var s8 = useState([]);
-  var ledgers = s8[0], setLedgers = s8[1];
-
-  var s9 = useState("");
-  var selectedParty = s9[0], setSelectedParty = s9[1];
-
-  var s10 = useState("");
-  var counter = s10[0], setCounter = s10[1];
-
-  var s11 = useState("");
-  var amount = s11[0], setAmount = s11[1];
-
-  var s12 = useState("");
-  var remark = s12[0], setRemark = s12[1];
-
-  var s13 = useState("");
-  var status = s13[0], setStatus = s13[1];
-
-  var s14 = useState(null);
-  var companyId = s14[0], setCompanyId = s14[1];
-
-  var s15 = useState("");
-  var companyName = s15[0], setCompanyName = s15[1];
-
-  var saveTimer = useRef(null);
-  var skipSave = useRef(true);
-
-  useEffect(function() {
-    console.log("Stage: checking session");
-    sb.auth.getSession().then(function(r) {
-      console.log("Session check done", r.data.session ? "has session" : "no session");
-      if (r.data.session) {
-        setSession(r.data.session);
-        setStage("loading-profile");
-      } else {
-        setStage("login");
-      }
-    });
-  }, []);
-
-  useEffect(function() {
-    if (stage !== "loading-profile" || !session) return;
-    console.log("Stage: loading profile");
-    sb.from("profiles").select("*").eq("id", session.user.id).single().then(function(pr) {
-      console.log("Profile loaded", pr.data ? pr.data.username : "none");
-      if (pr.data) {
-        setProfile(pr.data);
-        setStage("loading-ledger");
-      } else {
-        setStage("login");
-      }
-    });
-  }, [stage, session]);
-
-  useEffect(function() {
-    if (stage !== "loading-ledger" || !profile || !profile.company_id) return;
-    var cid = profile.company_id;
-    console.log("Stage: loading ledger for", cid);
-    setCompanyId(cid);
-
-    sb.from("companies").select("name").eq("id", cid).single().then(function(co) {
-      if (co.data) setCompanyName(co.data.name);
-    });
-
-    sb.from("company_state").select("state").eq("company_id", cid).maybeSingle().then(function(st) {
-      var cloud = (st.data && st.data.state) ? st.data.state : null;
-      var local = null;
-      try {
-        var raw = localStorage.getItem("ul_state_" + cid);
-        if (raw) local = JSON.parse(raw);
-      } catch(ex) {}
-
-      var candidates = [];
-      if (cloud && cloud.ledgers) candidates.push(cloud);
-      if (local && local.ledgers) candidates.push(local);
-
-      var final;
-      if (candidates.length === 0) {
-        final = {
-          parties: [{ id: "AA", name: "AA", status: "Active" }, { id: "BB", name: "BB", status: "Active" }],
-          ledgers: []
-        };
-      } else {
-        candidates.sort(function(a, b) {
-          return (b.ledgers.length || 0) - (a.ledgers.length || 0);
-        });
-        final = candidates[0];
-      }
-
-      setParties(final.parties || []);
-      setLedgers(final.ledgers || []);
-      if (final.parties && final.parties.length > 0) {
-        setSelectedParty(final.parties[0].id);
-        if (final.parties.length > 1) setCounter(final.parties[1].id);
-      }
-      setStage("ready");
-      setTimeout(function() { skipSave.current = false; }, 1000);
-    });
-  }, [stage, profile]);
-
-  useEffect(function() {
-    if (stage !== "ready" || skipSave.current || !companyId) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(function() {
-      var st = { parties: parties, ledgers: ledgers, savedAt: Date.now() };
-      try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(st)); } catch(ex) {}
-      setStatus("saving");
-      sb.from("company_state").upsert({
-        company_id: companyId,
-        state: st,
-        updated_at: new Date().toISOString(),
-        updated_by: session.user.id
-      }, { onConflict: "company_id" }).then(function(r) {
-        if (r.error) {
-          console.error("Save error", r.error);
-          setStatus("error");
-          return;
-        }
-        setStatus("saved");
-        setTimeout(function() { setStatus(""); }, 1500);
-      });
-    }, 400);
-    return function() {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, [parties, ledgers, stage, companyId]);
-
-  function doLogin(ev) {
-    ev.preventDefault();
+  function doLogin(e) {
+    e.preventDefault();
     setErr("");
+    setBusy(true);
     var uname = u.trim().toLowerCase();
-    if (!uname || !p) {
-      setErr("Fill both fields");
+    if (!uname) {
+      setErr("Username required");
+      setBusy(false);
       return;
     }
     sb.from("profiles").select("username, company_id").eq("username", uname).maybeSingle().then(function(pr) {
       if (!pr.data || !pr.data.company_id) {
         setErr("Username not found");
+        setBusy(false);
         return;
       }
       sb.from("companies").select("code").eq("id", pr.data.company_id).single().then(function(co) {
         if (!co.data) {
           setErr("Company not found");
+          setBusy(false);
           return;
         }
         var email = uname + "." + co.data.code.toLowerCase() + DOMAIN;
         sb.auth.signInWithPassword({ email: email, password: p }).then(function(r) {
+          setBusy(false);
           if (r.error) {
-            setErr("Wrong password");
+            setErr("Wrong username or password");
             return;
           }
-          setSession(r.data.session);
-          setStage("loading-profile");
+          if (props.onLogin) props.onLogin(r.data.session);
         });
       });
     });
   }
 
-  function doLogout() {
-    if (companyId) {
-      var st = { parties: parties, ledgers: ledgers, savedAt: Date.now() };
-      try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(st)); } catch(ex) {}
-      sb.from("company_state").upsert({
-        company_id: companyId,
-        state: st,
-        updated_at: new Date().toISOString(),
-        updated_by: session.user.id
-      }, { onConflict: "company_id" }).then(function() {
-        sb.auth.signOut().then(function() {
-          setSession(null);
-          setProfile(null);
-          setStage("login");
+  return h("div", { className: "min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-cyan-50 p-4" },
+    h("div", { className: "w-full max-w-md" },
+      h("div", { className: "text-center mb-6" },
+        h("div", { className: "text-[52px] mb-2" }, "📒"),
+        h("div", { className: "text-[26px] font-black text-slate-800" }, "ULTRA LEDGER"),
+        h("div", { className: "text-[12px] font-bold text-slate-500 tracking-widest uppercase mt-1" }, "Sign in")
+      ),
+      h("form", { onSubmit: doLogin, className: "bg-white rounded-2xl shadow-xl border border-slate-200 p-7" },
+        h("div", { className: "space-y-4" },
+          h("div", null,
+            h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Username"),
+            h("input", { value: u, onChange: function(e) { setU(e.target.value.toLowerCase()); }, autoFocus: true, placeholder: "username", className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-cyan-500" })
+          ),
+          h("div", null,
+            h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Password"),
+            h("input", { type: "password", value: p, onChange: function(e) { setP(e.target.value); }, placeholder: "••••••••", className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-cyan-500" })
+          )
+        ),
+        err ? h("div", { className: "mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700" }, "❌ " + err) : null,
+        h("button", { type: "submit", disabled: busy, className: "mt-5 w-full h-12 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white font-black text-[14px]" }, busy ? "..." : "LOGIN")
+      )
+    )
+  );
+}
+
+function ChangePasswordCard(props) {
+  var st1 = useState("");
+  var cur = st1[0], setCur = st1[1];
+  var st2 = useState("");
+  var nw = st2[0], setNw = st2[1];
+  var st3 = useState("");
+  var cf = st3[0], setCf = st3[1];
+  var st4 = useState(false);
+  var busy = st4[0], setBusy = st4[1];
+  var st5 = useState(null);
+  var msg = st5[0], setMsg = st5[1];
+
+  function change() {
+    setMsg(null);
+    if (!cur) { setMsg({ t: "err", m: "Current password required" }); return; }
+    if (!nw || nw.length < 6) { setMsg({ t: "err", m: "New password min 6 chars" }); return; }
+    if (nw !== cf) { setMsg({ t: "err", m: "Passwords don't match" }); return; }
+    setBusy(true);
+    sb.auth.getUser().then(function(r) {
+      if (!r.data.user || !r.data.user.email) {
+        setMsg({ t: "err", m: "Session expired" });
+        setBusy(false);
+        return;
+      }
+      sb.auth.signInWithPassword({ email: r.data.user.email, password: cur }).then(function(vr) {
+        if (vr.error) {
+          setMsg({ t: "err", m: "Current password is wrong" });
+          setBusy(false);
+          return;
+        }
+        sb.auth.updateUser({ password: nw }).then(function(ur) {
+          setBusy(false);
+          if (ur.error) {
+            setMsg({ t: "err", m: ur.error.message });
+            return;
+          }
+          setMsg({ t: "ok", m: "✅ Password changed!" });
+          setCur(""); setNw(""); setCf("");
         });
       });
+    });
+  }
+
+  function suggest() {
+    var c = "abcdefghjkmnpqrstuvwxyz23456789";
+    var r = "";
+    for (var i = 0; i < 8; i++) c.charAt(Math.floor(Math.random() * c.length));
+    for (var j = 0; j < 8; j++) r += c.charAt(Math.floor(Math.random() * c.length));
+    var pwd = "pass@" + r;
+    setNw(pwd);
+    setCf(pwd);
+  }
+
+  return h("div", { className: "rounded-xl border p-6 bg-white" },
+    h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "🔑 CHANGE PASSWORD"),
+    h("div", { className: "space-y-3" },
+      h("div", null,
+        h("label", { className: "text-[11px] font-black uppercase opacity-70 block mb-1.5" }, "Current Password"),
+        h("input", { type: "password", value: cur, onChange: function(e) { setCur(e.target.value); setMsg(null); }, placeholder: "Enter current password", className: "w-full h-12 rounded-lg border px-4 text-[14px] font-bold" })
+      ),
+      h("div", null,
+        h("label", { className: "text-[11px] font-black uppercase opacity-70 block mb-1.5" }, "New Password"),
+        h("div", { className: "flex gap-2" },
+          h("input", { type: "password", value: nw, onChange: function(e) { setNw(e.target.value); setMsg(null); }, placeholder: "Enter new password", className: "flex-1 h-12 rounded-lg border px-4 text-[14px] font-bold" }),
+          h("button", { type: "button", onClick: suggest, className: "h-12 px-4 rounded-lg bg-cyan-100 text-cyan-700 font-black text-[11px]" }, "🎲 Auto")
+        )
+      ),
+      h("div", null,
+        h("label", { className: "text-[11px] font-black uppercase opacity-70 block mb-1.5" }, "Confirm Password"),
+        h("input", { type: "password", value: cf, onChange: function(e) { setCf(e.target.value); setMsg(null); }, placeholder: "Re-enter new password", className: "w-full h-12 rounded-lg border px-4 text-[14px] font-bold" })
+      ),
+      msg ? h("div", { className: "p-3 rounded-lg text-[12px] font-bold " + (msg.t === "ok" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700") }, msg.m) : null,
+      h("button", { onClick: change, disabled: busy, className: "w-full h-12 rounded-lg font-black text-[14px] bg-cyan-600 text-white " + (busy ? "opacity-50" : "") }, busy ? "Changing..." : "🔒 Change Password")
+    )
+  );
+}
+
+function OriginalApp(props) {
+  var cloudState = props.cloudState;
+  var profile = props.profile;
+  var companyId = props.companyId;
+  var saveCloud = props.saveCloud;
+  var cloudSaveStatus = props.cloudSaveStatus;
+
+  var t1 = useState("ledger");
+  var tab = t1[0], setTab = t1[1];
+  var t2 = useState((cloudState && cloudState.companyName) || "");
+  var companyName = t2[0], setCompanyName = t2[1];
+  var t3 = useState((cloudState && cloudState.parties) || SEED_PARTIES);
+  var parties = t3[0], setParties = t3[1];
+  var t4 = useState((cloudState && cloudState.ledgers) || []);
+  var ledgers = t4[0], setLedgers = t4[1];
+  var t5 = useState((cloudState && cloudState.finals) || []);
+  var finals = t5[0], setFinals = t5[1];
+  var t6 = useState("BB");
+  var selectedParty = t6[0], setSelectedParty = t6[1];
+  var t7 = useState(null);
+  var toast = t7[0], setToast = t7[1];
+  var t8 = useState("AA");
+  var counter = t8[0], setCounter = t8[1];
+  var t9 = useState("");
+  var amount = t9[0], setAmount = t9[1];
+  var t10 = useState("");
+  var remark = t10[0], setRemark = t10[1];
+  var t11 = useState("");
+  var search = t11[0], setSearch = t11[1];
+  var t12 = useState(null);
+  var editEntry = t12[0], setEditEntry = t12[1];
+  var t13 = useState({});
+  var editForm = t13[0], setEditForm = t13[1];
+  var t14 = useState(null);
+  var deleteEntry = t14[0], setDeleteEntry = t14[1];
+  var t15 = useState(false);
+  var confirmFinal = t15[0], setConfirmFinal = t15[1];
+  var t16 = useState(null);
+  var lockedInfo = t16[0], setLockedInfo = t16[1];
+  var t17 = useState((cloudState && cloudState.pin) || "");
+  var pin = t17[0], setPin = t17[1];
+  var t18 = useState("");
+  var pinInput = t18[0], setPinInput = t18[1];
+  var t19 = useState("");
+  var pinMsg = t19[0], setPinMsg = t19[1];
+  var t20 = useState((cloudState && cloudState.companyName) || "");
+  var companyNameInput = t20[0], setCompanyNameInput = t20[1];
+  var t21 = useState((cloudState && cloudState.history) || []);
+  var history = t21[0], setHistory = t21[1];
+  var t22 = useState("");
+  var newPartyName = t22[0], setNewPartyName = t22[1];
+  var t23 = useState(null);
+  var partyConfirm = t23[0], setPartyConfirm = t23[1];
+  var t24 = useState(null);
+  var editParty = t24[0], setEditParty = t24[1];
+  var t25 = useState("");
+  var editPartyName = t25[0], setEditPartyName = t25[1];
+  var t26 = useState(null);
+  var toggleConfirm = t26[0], setToggleConfirm = t26[1];
+  var t27 = useState("");
+  var filterFrom = t27[0], setFilterFrom = t27[1];
+  var t28 = useState("");
+  var filterTo = t28[0], setFilterTo = t28[1];
+  var t29 = useState("");
+  var finalFilter = t29[0], setFinalFilter = t29[1];
+  var t30 = useState(false);
+  var frOpen = t30[0], setFrOpen = t30[1];
+  var t31 = useState("");
+  var frSearch = t31[0], setFrSearch = t31[1];
+  var t32 = useState(null);
+  var pinPrompt = t32[0], setPinPrompt = t32[1];
+  var t33 = useState("");
+  var pinPromptInput = t33[0], setPinPromptInput = t33[1];
+  var t34 = useState("");
+  var pinPromptErr = t34[0], setPinPromptErr = t34[1];
+  var t35 = useState((cloudState && cloudState.lastBackupTime) || 0);
+  var lastBackupTime = t35[0], setLastBackupTime = t35[1];
+
+  var amountRef = useRef(null);
+  var remarkRef = useRef(null);
+  var counterRef = useRef(null);
+  var addBtnRef = useRef(null);
+  var fileInputRef = useRef(null);
+  var saveTimerRef = useRef(null);
+  var skipSaveRef = useRef(true);
+  var stateRef = useRef({});
+
+  stateRef.current = {
+    parties: parties, ledgers: ledgers, finals: finals, pin: pin,
+    companyName: companyName, history: history, lastBackupTime: lastBackupTime,
+    selectedParty: selectedParty, counter: counter
+  };
+
+  useEffect(function() {
+    setTimeout(function() { skipSaveRef.current = false; }, 1500);
+  }, []);
+
+  // INSTANT localStorage save
+  useEffect(function() {
+    if (skipSaveRef.current) return;
+    var snap = {
+      parties: parties, ledgers: ledgers, finals: finals, pin: pin,
+      companyName: companyName, history: history, lastBackupTime: lastBackupTime,
+      selectedParty: selectedParty, counter: counter, savedAt: Date.now()
+    };
+    try {
+      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
+    } catch(e) {}
+  }, [parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter, companyId]);
+
+  // Debounced cloud save (500ms)
+  useEffect(function() {
+    if (skipSaveRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(function() {
+      if (saveCloud) {
+        saveCloud({
+          parties: parties, ledgers: ledgers, finals: finals, pin: pin,
+          companyName: companyName, history: history, lastBackupTime: lastBackupTime,
+          selectedParty: selectedParty, counter: counter, savedAt: Date.now()
+        });
+      }
+    }, 500);
+    return function() {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [parties, ledgers, finals, pin, companyName, history, lastBackupTime, selectedParty, counter]);
+
+  useEffect(function() {
+    if (toast) {
+      var t = setTimeout(function() { setToast(null); }, 2500);
+      return function() { clearTimeout(t); };
+    }
+  }, [toast]);
+
+  useEffect(function() {
+    if (tab !== "ledger") return;
+    var t = setTimeout(function() {
+      if (counterRef.current) counterRef.current.focus();
+    }, 350);
+    return function() { clearTimeout(t); };
+  }, [tab, selectedParty]);
+
+  var selectedPartyObj = null;
+  for (var i = 0; i < parties.length; i++) {
+    if (parties[i].id === selectedParty) selectedPartyObj = parties[i];
+  }
+  var isDeactive = selectedPartyObj && selectedPartyObj.status !== "Active";
+
+  var partyEntries = useMemo(function() {
+    var arr = [];
+    for (var i = 0; i < ledgers.length; i++) {
+      if (ledgers[i].partyId === selectedParty) arr.push(ledgers[i]);
+    }
+    arr.sort(function(a, b) { return a.createdAt - b.createdAt; });
+    return arr;
+  }, [ledgers, selectedParty]);
+
+  var balMapData = useMemo(function() {
+    var m = new Map();
+    var run = 0;
+    for (var i = 0; i < partyEntries.length; i++) {
+      run += partyEntries[i].amount;
+      m.set(partyEntries[i].id, run);
+    }
+    return { map: m, total: run };
+  }, [partyEntries]);
+
+  var allPartyBalances = useMemo(function() {
+    var m = {};
+    for (var i = 0; i < parties.length; i++) {
+      var p = parties[i];
+      var sum = 0;
+      for (var j = 0; j < ledgers.length; j++) {
+        if (ledgers[j].partyId === p.id) sum += ledgers[j].amount;
+      }
+      m[p.id] = sum;
+    }
+    return m;
+  }, [parties, ledgers]);
+
+  var filteredEntries = useMemo(function() {
+    if (!search.trim()) return partyEntries;
+    var s = search.toLowerCase();
+    var out = [];
+    for (var i = 0; i < partyEntries.length; i++) {
+      var e = partyEntries[i];
+      var str = (dmy(e.date) + " " + (e.counterPartyId || "") + " " + (e.remark || "") + " " + e.amount).toLowerCase();
+      if (str.indexOf(s) !== -1) out.push(e);
+    }
+    return out;
+  }, [partyEntries, search]);
+
+  function isLocked(e) {
+    if (e.openingLocked) return true;
+    if ((e.remark || "").toLowerCase() === "opening") return true;
+    if (e.finalLocked) return true;
+    return false;
+  }
+
+  var trial = useMemo(function() {
+    var src = ledgers;
+    if (filterFrom) {
+      var f1 = [];
+      for (var i = 0; i < src.length; i++) if (src[i].date >= filterFrom) f1.push(src[i]);
+      src = f1;
+    }
+    if (filterTo) {
+      var f2 = [];
+      for (var j = 0; j < src.length; j++) if (src[j].date <= filterTo) f2.push(src[j]);
+      src = f2;
+    }
+    var dp = [], cp = [];
+    for (var k = 0; k < parties.length; k++) {
+      var p = parties[k];
+      if (p.status !== "Active") continue;
+      var bal = 0;
+      for (var l = 0; l < src.length; l++) if (src[l].partyId === p.id) bal += src[l].amount;
+      if (bal < 0) dp.push({ party: p, bal: bal });
+      else if (bal > 0) cp.push({ party: p, bal: bal });
+    }
+    var debit = 0, credit = 0;
+    for (var m = 0; m < dp.length; m++) debit += Math.abs(dp[m].bal);
+    for (var n = 0; n < cp.length; n++) credit += cp[n].bal;
+    var diff = credit - debit;
+    var status = "BALANCED";
+    if (diff > 0) status = "CREDIT EXCESS " + Math.abs(diff).toLocaleString("en-IN");
+    else if (diff < 0) status = "DEBIT EXCESS " + Math.abs(diff).toLocaleString("en-IN");
+    return { debitParties: dp, creditParties: cp, debit: debit, credit: credit, diff: diff, status: status };
+  }, [ledgers, parties, filterFrom, filterTo]);
+
+  var finalRows = useMemo(function() {
+    if (!finals.length || !finalFilter) return [];
+    var filtered = [];
+    for (var i = 0; i < finals.length; i++) if (finals[i].partyId === finalFilter) filtered.push(finals[i]);
+    filtered.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    var run = 0, out = [];
+    for (var j = 0; j < filtered.length; j++) {
+      var g = filtered[j];
+      for (var k = 0; k < g.entries.length; k++) {
+        var e = g.entries[k];
+        var isCF = e.carryForward === true;
+        if (!isCF) run += e.amount;
+        out.push({
+          id: e.id, partyId: g.partyId, date: e.date,
+          counterPartyId: isCF ? "B/F" : e.counterPartyId,
+          remark: isCF ? "Opening" : e.remark,
+          _debit: (!isCF && e.amount < 0) ? Math.abs(e.amount).toString() : "-",
+          _credit: (!isCF && e.amount > 0) ? e.amount.toString() : "-",
+          _bal: run, isClosing: false, isOpeningEntry: isCF
+        });
+      }
+      out.push({
+        id: "closing_" + g.id, partyId: g.partyId, date: g.closedAt,
+        counterPartyId: "-", remark: "FINAL CLOSING • " + g.partyId,
+        _debit: "-", _credit: "-", _bal: run, isClosing: true
+      });
+    }
+    return out;
+  }, [finals, finalFilter]);
+
+  var frRows = useMemo(function() {
+    if (!finals.length) return [];
+    var filtered = [];
+    for (var i = 0; i < finals.length; i++) if (finals[i].partyId === selectedParty) filtered.push(finals[i]);
+    filtered.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    var run = 0, out = [];
+    for (var j = 0; j < filtered.length; j++) {
+      var g = filtered[j];
+      for (var k = 0; k < g.entries.length; k++) {
+        var e = g.entries[k];
+        var isCF = e.carryForward === true;
+        if (!isCF) run += e.amount;
+        out.push({
+          id: e.id, date: e.date,
+          counterPartyId: isCF ? "B/F" : e.counterPartyId,
+          remark: isCF ? "Opening" : e.remark,
+          _debit: (!isCF && e.amount < 0) ? Math.abs(e.amount).toString() : "-",
+          _credit: (!isCF && e.amount > 0) ? e.amount.toString() : "-",
+          _bal: run, isClosing: false, isOpeningEntry: isCF
+        });
+      }
+      out.push({
+        id: "closing_" + g.id, date: g.closedAt,
+        counterPartyId: "-", remark: "FINAL CLOSING • " + g.partyId,
+        _debit: "-", _credit: "-", _bal: run, isClosing: true
+      });
+    }
+    return out;
+  }, [finals, selectedParty]);
+
+  function showToast(msg) { setToast(msg); }
+
+  function saveNow(updates) {
+    var newState = {
+      parties: updates.parties || parties,
+      ledgers: updates.ledgers || ledgers,
+      finals: updates.finals || finals,
+      pin: updates.pin !== undefined ? updates.pin : pin,
+      companyName: updates.companyName !== undefined ? updates.companyName : companyName,
+      history: updates.history || history,
+      lastBackupTime: updates.lastBackupTime !== undefined ? updates.lastBackupTime : lastBackupTime,
+      selectedParty: updates.selectedParty || selectedParty,
+      counter: updates.counter || counter,
+      savedAt: Date.now()
+    };
+    try {
+      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(newState));
+    } catch(e) {}
+    if (saveCloud) saveCloud(newState);
+  }
+
+  function safeLogout() {
+    var latest = stateRef.current || {};
+    var snap = {
+      parties: latest.parties || parties,
+      ledgers: latest.ledgers || ledgers,
+      finals: latest.finals || finals,
+      pin: latest.pin !== undefined ? latest.pin : pin,
+      companyName: latest.companyName !== undefined ? latest.companyName : companyName,
+      history: latest.history || history,
+      lastBackupTime: latest.lastBackupTime || lastBackupTime,
+      selectedParty: latest.selectedParty || selectedParty,
+      counter: latest.counter || counter,
+      savedAt: Date.now()
+    };
+    try {
+      localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap));
+    } catch(e) {}
+    if (saveCloud) {
+      saveCloud(snap).then(function() {
+        setTimeout(function() {
+          if (props.onLogout) props.onLogout();
+        }, 400);
+      });
     } else {
-      sb.auth.signOut().then(function() { setStage("login"); });
+      if (props.onLogout) props.onLogout();
     }
   }
 
-  function addEntry() {
-    if (!amount || !counter || !selectedParty) {
-      alert("Fill all fields");
-      return;
+  function requirePin(fn, label) {
+    if (!pin) { fn(); return; }
+    setPinPrompt({ run: fn, label: label || "Confirm" });
+    setPinPromptInput("");
+    setPinPromptErr("");
+  }
+
+  function confirmPin() {
+    if (pinPromptInput === pin) {
+      var fn = pinPrompt.run;
+      setPinPrompt(null);
+      setPinPromptInput("");
+      setPinPromptErr("");
+      setTimeout(function() { fn(); }, 50);
+    } else {
+      setPinPromptErr("Wrong PIN");
     }
-    if (selectedParty === counter) {
-      alert("Same party not allowed");
-      return;
-    }
-    var parts = amount.split("/");
+  }
+
+  function parseAmounts(s) {
+    if (!s) return [];
+    var parts = s.split("/");
     var nums = [];
     for (var i = 0; i < parts.length; i++) {
       var n = parseFloat(parts[i].trim());
       if (!isNaN(n) && n !== 0) nums.push(n);
     }
     if (nums.length === 0) {
-      alert("Invalid amount");
-      return;
+      var nn = parseFloat(s);
+      if (!isNaN(nn) && nn !== 0) nums.push(nn);
     }
+    return nums;
+  }
+
+  function handleAdd() {
+    var nums = parseAmounts(amount);
+    if (!nums.length) { showToast("Enter amount"); return; }
+    if (selectedParty === counter) { showToast("Same party"); return; }
+    if (isDeactive) { showToast(selectedParty + " DEACTIVE"); return; }
+    var cpObj = null;
+    for (var i = 0; i < parties.length; i++) if (parties[i].id === counter) cpObj = parties[i];
+    if (cpObj && cpObj.status !== "Active") { showToast(counter + " DEACTIVE"); return; }
+    var date = todayISO();
+    var time = nowTime();
     var now = Date.now();
-    var dt = new Date();
-    var date = dt.toISOString().slice(0, 10);
-    var time = String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0");
     var newEntries = [];
+    var finalRemark = remark.trim();
     for (var j = 0; j < nums.length; j++) {
-      var nn = nums[j];
-      var pid = "pair_" + now + "_" + j;
-      newEntries.push({
-        id: "e_" + now + "_" + j + "_1",
-        pairId: pid,
-        date: date,
-        time: time,
-        partyId: selectedParty,
-        counterPartyId: counter,
-        amount: nn,
-        remark: remark.trim(),
-        createdAt: now + j * 2
-      });
-      newEntries.push({
-        id: "e_" + now + "_" + j + "_2",
-        pairId: pid,
-        date: date,
-        time: time,
-        partyId: counter,
-        counterPartyId: selectedParty,
-        amount: -nn,
-        remark: remark.trim(),
-        createdAt: now + j * 2 + 1
-      });
+      var n = nums[j];
+      var pairId = "pair_" + now + "_" + j;
+      newEntries.push({ id: "e_" + now + "_" + j + "_1", pairId: pairId, date: date, time: time, partyId: selectedParty, counterPartyId: counter, amount: n, remark: finalRemark, createdAt: now + j * 2 });
+      newEntries.push({ id: "e_" + now + "_" + j + "_2", pairId: pairId, date: date, time: time, partyId: counter, counterPartyId: selectedParty, amount: -n, remark: finalRemark, createdAt: now + j * 2 + 1 });
     }
-    setLedgers(ledgers.concat(newEntries));
+    var newLedgers = ledgers.concat(newEntries);
+    setLedgers(newLedgers);
     setAmount("");
     setRemark("");
+    saveNow({ ledgers: newLedgers });
+    showToast("Added");
+    setTimeout(function() { if (counterRef.current) counterRef.current.focus(); }, 50);
   }
 
-  function deleteEntry(entry) {
-    if (entry.openingLocked) return;
-    if (!confirm("Delete from both sides?")) return;
-    var newList = [];
+  function handleModify(e) {
+    if (isLocked(e)) { setLockedInfo({ reason: "Entry locked" }); return; }
+    setEditEntry(e);
+    setEditForm({ date: e.date, counter: e.counterPartyId, amount: String(e.amount), remark: e.remark || "" });
+  }
+
+  function saveModify() {
+    var amt = parseFloat(editForm.amount);
+    if (isNaN(amt) || amt === 0) { showToast("Invalid amount"); return; }
+    var finalRemark = (editForm.remark || "").trim();
+    var newLedgers = [];
     for (var i = 0; i < ledgers.length; i++) {
-      if (ledgers[i].pairId !== entry.pairId) newList.push(ledgers[i]);
+      var e = ledgers[i];
+      if (e.pairId !== editEntry.pairId) { newLedgers.push(e); continue; }
+      if (isLocked(e)) { newLedgers.push(e); continue; }
+      if (e.partyId === editEntry.partyId) {
+        newLedgers.push({ id: e.id, pairId: e.pairId, date: editForm.date, time: e.time, partyId: e.partyId, counterPartyId: editForm.counter, amount: amt, remark: finalRemark, createdAt: e.createdAt });
+      } else {
+        newLedgers.push({ id: e.id, pairId: e.pairId, date: editForm.date, time: e.time, partyId: editForm.counter, counterPartyId: editEntry.partyId, amount: -amt, remark: finalRemark, createdAt: e.createdAt });
+      }
     }
-    setLedgers(newList);
+    setLedgers(newLedgers);
+    setEditEntry(null);
+    saveNow({ ledgers: newLedgers });
+    showToast("Modified");
   }
 
-  if (stage === "loading") {
-    return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100" },
-      h("div", { className: "text-center" },
-        h("div", { className: "text-4xl mb-2" }, "📒"),
-        h("div", { className: "font-bold" }, "Checking session...")
-      )
-    );
+  function handleDelete(e) {
+    if (isLocked(e)) { setLockedInfo({ reason: "Entry locked" }); return; }
+    setDeleteEntry(e);
   }
 
-  if (stage === "loading-profile") {
-    return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100" },
-      h("div", { className: "text-center" },
-        h("div", { className: "text-4xl mb-2" }, "📒"),
-        h("div", { className: "font-bold" }, "Loading profile...")
-      )
-    );
-  }
-
-  if (stage === "loading-ledger") {
-    return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100" },
-      h("div", { className: "text-center" },
-        h("div", { className: "text-4xl mb-2" }, "📒"),
-        h("div", { className: "font-bold" }, "Loading ledger...")
-      )
-    );
-  }
-
-  if (stage === "login" || !session) {
-    return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100 p-4" },
-      h("form", { onSubmit: doLogin, className: "bg-white p-8 rounded-2xl shadow-xl w-full max-w-md" },
-        h("div", { className: "text-center mb-6" },
-          h("div", { className: "text-5xl mb-2" }, "📒"),
-          h("div", { className: "text-xl font-black" }, "ULTRA LEDGER")
-        ),
-        h("input", {
-          value: u,
-          onChange: function(e) { setU(e.target.value.toLowerCase()); },
-          placeholder: "Username",
-          autoFocus: true,
-          className: "w-full h-12 border rounded px-4 mb-3"
-        }),
-        h("input", {
-          type: "password",
-          value: p,
-          onChange: function(e) { setP(e.target.value); },
-          placeholder: "Password",
-          className: "w-full h-12 border rounded px-4 mb-3"
-        }),
-        err ? h("div", { className: "text-red-600 mb-3 text-xs font-bold" }, err) : null,
-        h("button", { type: "submit", className: "w-full h-12 bg-cyan-600 text-white rounded font-bold" }, "LOGIN")
-      )
-    );
-  }
-
-  var partyRows = [];
-  for (var i = 0; i < ledgers.length; i++) {
-    if (ledgers[i].partyId === selectedParty) {
-      partyRows.push(ledgers[i]);
+  function confirmDelete() {
+    var pairId = deleteEntry.pairId;
+    var id = deleteEntry.id;
+    var newLedgers = [];
+    for (var i = 0; i < ledgers.length; i++) {
+      var e = ledgers[i];
+      if (isLocked(e)) { newLedgers.push(e); continue; }
+      if (e.pairId && pairId) {
+        if (e.pairId !== pairId) newLedgers.push(e);
+      } else {
+        if (e.id !== id) newLedgers.push(e);
+      }
     }
-  }
-  partyRows.sort(function(a, b) { return a.createdAt - b.createdAt; });
-
-  var balMap = {};
-  var running = 0;
-  for (var k = 0; k < partyRows.length; k++) {
-    running += partyRows[k].amount;
-    balMap[partyRows[k].id] = running;
-  }
-  var totalBalance = running;
-
-  var rows = [];
-  for (var r = 0; r < partyRows.length; r++) {
-    var entry = partyRows[r];
-    var bal = balMap[entry.id] || 0;
-    rows.push(
-      h("tr", { key: entry.id, className: "border-t" },
-        h("td", { className: "p-2 text-xs" }, entry.date + " " + entry.time),
-        h("td", { className: "p-2 font-bold" }, entry.counterPartyId || "-"),
-        h("td", { className: "p-2" }, entry.remark || "-"),
-        h("td", { className: "p-2 text-right text-red-600" }, entry.amount < 0 ? "₹" + Math.abs(entry.amount).toLocaleString("en-IN") : "-"),
-        h("td", { className: "p-2 text-right text-green-600" }, entry.amount > 0 ? "₹" + entry.amount.toLocaleString("en-IN") : "-"),
-        h("td", { className: "p-2 text-right font-bold " + (bal < 0 ? "text-red-600" : "text-green-600") }, "₹" + bal.toLocaleString("en-IN")),
-        h("td", { className: "p-2" },
-          h("button", {
-            onClick: function() { deleteEntry(entry); },
-            className: "text-xs px-2 py-1 bg-red-50 text-red-600 border rounded"
-          }, "Del")
-        )
-      )
-    );
+    setLedgers(newLedgers);
+    setDeleteEntry(null);
+    saveNow({ ledgers: newLedgers });
+    showToast("Deleted");
   }
 
-  var partyOpts = [];
-  for (var p1 = 0; p1 < parties.length; p1++) {
-    partyOpts.push(h("option", { key: parties[p1].id, value: parties[p1].id }, parties[p1].id));
-  }
-
-  var counterOpts = [];
-  for (var p2 = 0; p2 < parties.length; p2++) {
-    if (parties[p2].id !== selectedParty) {
-      counterOpts.push(h("option", { key: parties[p2].id, value: parties[p2].id }, parties[p2].id));
+  function doFinal() {
+    var entries = [];
+    for (var i = 0; i < ledgers.length; i++) if (ledgers[i].partyId === selectedParty) entries.push(ledgers[i]);
+    entries.sort(function(a, b) { return a.createdAt - b.createdAt; });
+    var balance = 0;
+    for (var j = 0; j < entries.length; j++) balance += entries[j].amount;
+    var now = Date.now();
+    var counterEntries = [];
+    for (var k = 0; k < ledgers.length; k++) {
+      var l = ledgers[k];
+      if (l.counterPartyId === selectedParty && !l.openingLocked && (l.remark || "").toLowerCase() !== "opening" && !l.finalLocked) {
+        counterEntries.push(l);
+      }
     }
+    var newFinals = finals.concat([{ id: "final_" + now, partyId: selectedParty, closedAt: todayISO(), entries: entries, counterEntries: counterEntries, balance: balance, createdAt: now }]);
+    var cps = {};
+    for (var m = 0; m < counterEntries.length; m++) cps[counterEntries[m].pairId] = true;
+    var newLedgers = [];
+    for (var n = 0; n < ledgers.length; n++) {
+      var lg = ledgers[n];
+      if (lg.partyId !== selectedParty) {
+        if (cps[lg.pairId]) {
+          var copy = {};
+          for (var kk in lg) copy[kk] = lg[kk];
+          copy.finalLocked = true;
+          newLedgers.push(copy);
+        } else {
+          newLedgers.push(lg);
+        }
+      }
+    }
+    newLedgers.push({ id: "open_" + now, pairId: "opening_" + now, date: todayISO(), time: nowTime(), partyId: selectedParty, counterPartyId: "", amount: balance, remark: "Opening", createdAt: now + 5, openingLocked: true, carryForward: true });
+    setFinals(newFinals);
+    setLedgers(newLedgers);
+    setConfirmFinal(false);
+    saveNow({ ledgers: newLedgers, finals: newFinals });
+    showToast(selectedParty + " Finalized");
   }
 
-  var statusText = "";
-  if (status === "saving") statusText = "Saving...";
-  else if (status === "saved") statusText = "Saved";
-  else if (status === "error") statusText = "Failed";
+  function addParty() {
+    var name = newPartyName.trim().toUpperCase();
+    if (!name) { showToast("Enter name"); return; }
+    for (var i = 0; i < parties.length; i++) if (parties[i].id === name) { showToast("Exists"); return; }
+    requirePin(function() { setPartyConfirm({ name: name }); }, "Create Party " + name);
+  }
 
-  var tbodyContent = rows.length > 0 ? rows : [
-    h("tr", { key: "empty" },
-      h("td", { colSpan: 7, className: "p-6 text-center text-slate-400" }, "No entries")
-    )
+  function confirmAddParty() {
+    var name = partyConfirm.name;
+    var newParties = parties.concat([{ id: name, name: name, status: "Active" }]);
+    var newHistory = [{ id: "h_" + Date.now(), dateDisplay: dmy(todayISO()), timeDisplay: nowTime(), action: "Created", partyId: name, oldVal: "-", newVal: name, remark: name + " Created" }].concat(history);
+    setParties(newParties);
+    setHistory(newHistory);
+    setNewPartyName("");
+    setPartyConfirm(null);
+    saveNow({ parties: newParties, history: newHistory });
+    showToast("Party " + name + " created");
+  }
+
+  function requestToggle(p) {
+    requirePin(function() {
+      setToggleConfirm({ party: p, next: p.status === "Active" ? "Deactive" : "Active" });
+    }, "Toggle " + p.id);
+  }
+
+  function confirmToggle() {
+    var p = toggleConfirm.party;
+    var next = toggleConfirm.next;
+    var newParties = [];
+    for (var i = 0; i < parties.length; i++) {
+      if (parties[i].id === p.id) newParties.push({ id: p.id, name: p.name, status: next });
+      else newParties.push(parties[i]);
+    }
+    var newHistory = [{ id: "h_" + Date.now(), dateDisplay: dmy(todayISO()), timeDisplay: nowTime(), action: next === "Active" ? "Activate" : "Deactivate", partyId: p.id, oldVal: p.status, newVal: next, remark: next }].concat(history);
+    setParties(newParties);
+    setHistory(newHistory);
+    setToggleConfirm(null);
+    saveNow({ parties: newParties, history: newHistory });
+    showToast(p.id + " " + next);
+  }
+
+  function requestEditParty(p) {
+    requirePin(function() {
+      setEditParty(p);
+      setEditPartyName(p.name);
+    }, "Modify Party");
+  }
+
+  function savePartyEdit() {
+    var name = editPartyName.trim().toUpperCase();
+    if (!name || name === editParty.id) { setEditParty(null); return; }
+    for (var i = 0; i < parties.length; i++) if (parties[i].id === name) { showToast("Exists"); return; }
+    var newParties = [];
+    for (var j = 0; j < parties.length; j++) {
+      if (parties[j].id === editParty.id) newParties.push({ id: name, name: name, status: parties[j].status });
+      else newParties.push(parties[j]);
+    }
+    var newLedgers = [];
+    for (var k = 0; k < ledgers.length; k++) {
+      var l = ledgers[k];
+      var pid = l.partyId === editParty.id ? name : l.partyId;
+      var cid = l.counterPartyId === editParty.id ? name : l.counterPartyId;
+      newLedgers.push({ id: l.id, pairId: l.pairId, date: l.date, time: l.time, partyId: pid, counterPartyId: cid, amount: l.amount, remark: l.remark, createdAt: l.createdAt, openingLocked: l.openingLocked, finalLocked: l.finalLocked, carryForward: l.carryForward });
+    }
+    setParties(newParties);
+    setLedgers(newLedgers);
+    if (selectedParty === editParty.id) setSelectedParty(name);
+    if (counter === editParty.id) setCounter(name);
+    setEditParty(null);
+    saveNow({ parties: newParties, ledgers: newLedgers });
+    showToast("Renamed");
+  }
+
+  function downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = name; a.style.display = "none";
+    document.body.appendChild(a); a.click();
+    setTimeout(function() { a.remove(); URL.revokeObjectURL(url); }, 1500);
+  }
+
+  function exportCSV() {
+    var csv = "Date,Time,Counter,Amount,Remark,Debit,Credit,Balance\n";
+    for (var i = 0; i < filteredEntries.length; i++) {
+      var e = filteredEntries[i];
+      var bal = balMapData.map.get(e.id) || 0;
+      csv += e.date + "," + (e.time || "") + "," + (e.counterPartyId || "-") + ',"' + (e.remark || "").replace(/"/g, '""') + '",' + e.amount + "," + (e.amount < 0 ? Math.abs(e.amount) : "") + "," + (e.amount > 0 ? e.amount : "") + "," + bal + "\n";
+    }
+    downloadBlob(new Blob([csv], { type: "text/csv" }), "ledger_" + selectedParty + ".csv");
+    showToast("Exported");
+  }
+
+  function exportFR() {
+    var csv = "Date,Counter,Remark,Debit,Credit,Balance\n";
+    for (var i = 0; i < frRows.length; i++) {
+      var r = frRows[i];
+      csv += r.date + "," + (r.counterPartyId || "-") + ',"' + (r.remark || "").replace(/"/g, '""') + '",' + r._debit + "," + r._credit + "," + r._bal + "\n";
+    }
+    downloadBlob(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }), "FR_" + selectedParty + ".csv");
+    showToast("Exported");
+  }
+
+  function handleBackup() {
+    requirePin(function() {
+      var data = { parties: parties, ledgers: ledgers, finals: finals, pin: pin, companyName: companyName, history: history };
+      downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "backup_" + todayISO() + ".json");
+      setLastBackupTime(Date.now());
+      saveNow({ lastBackupTime: Date.now() });
+      showToast("Backup exported");
+    }, "Backup");
+  }
+
+  function triggerRestore() {
+    if (fileInputRef.current) fileInputRef.current.click();
+  }
+
+  function handleRestore(e) {
+    var f = e.target.files[0];
+    if (!f) return;
+    e.target.value = "";
+    requirePin(function() {
+      var r = new FileReader();
+      r.onload = function() {
+        try {
+          var d = JSON.parse(r.result);
+          if (d.parties) setParties(d.parties);
+          if (d.ledgers) setLedgers(d.ledgers);
+          if (d.finals) setFinals(d.finals);
+          if (d.pin) setPin(d.pin);
+          if (d.companyName !== undefined) { setCompanyName(d.companyName || ""); setCompanyNameInput(d.companyName || ""); }
+          if (d.history) setHistory(d.history);
+          showToast("Restore OK");
+        } catch(e) { showToast("Invalid file"); }
+      };
+      r.readAsText(f);
+    }, "Restore");
+  }
+
+  function removePin() {
+    requirePin(function() {
+      if (confirm("Remove PIN?")) {
+        setPin("");
+        saveNow({ pin: "" });
+        showToast("PIN removed");
+      }
+    }, "Remove PIN");
+  }
+
+  function saveCompanyName() {
+    var n = companyNameInput.trim();
+    if (n === companyName) { showToast("No change"); return; }
+    requirePin(function() {
+      setCompanyName(n);
+      saveNow({ companyName: n });
+      showToast("Saved");
+    }, "Change Company Name");
+  }
+
+  function clearCompanyName() {
+    requirePin(function() {
+      setCompanyName("");
+      setCompanyNameInput("");
+      saveNow({ companyName: "" });
+      showToast("Cleared");
+    }, "Clear Company Name");
+  }
+
+  var NAV = [
+    { id: "ledger", label: "LEDGER", icon: "📒" },
+    { id: "party", label: "PARTY MANAGER", icon: "👥" },
+    { id: "final", label: "FINAL REPORT", icon: "📄" },
+    { id: "trial", label: "TRIAL BALANCE", icon: "⚖️" },
+    { id: "profile", label: "PROFILE", icon: "👤" }
   ];
 
-  return h("div", { className: "min-h-screen bg-slate-100" },
-    h("header", { className: "bg-white border-b p-3 flex justify-between items-center" },
-      h("div", { className: "font-black" }, companyName || "ULTRA LEDGER"),
-      h("div", { className: "flex gap-2 items-center" },
-        statusText ? h("span", { className: "text-xs px-2 py-1 bg-slate-100 rounded" }, statusText) : null,
-        h("button", {
-          onClick: doLogout,
-          className: "px-3 py-1 border rounded font-bold text-xs"
-        }, "Logout")
-      )
+  var navBtns = NAV.map(function(n) {
+    return h("button", {
+      key: n.id,
+      onClick: function() { setTab(n.id); },
+      className: "w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left " + (tab === n.id ? "bg-cyan-600 text-white border-cyan-600" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50")
+    }, h("span", null, n.icon), n.label);
+  });
+
+  var header = h("header", { className: "sticky top-0 z-40 border-b flex items-center justify-between px-3 py-2 h-16 bg-white border-slate-200" },
+    h("div", { className: "flex items-center gap-2 flex-1 min-w-0 flex-wrap" },
+      h("label", { className: "text-[13px] font-semibold" }, "Party:"),
+      h("select", {
+        value: selectedParty,
+        onChange: function(e) {
+          setSelectedParty(e.target.value);
+          var alt = null;
+          for (var i = 0; i < parties.length; i++) if (parties[i].id !== e.target.value && parties[i].status === "Active") { alt = parties[i]; break; }
+          if (alt) setCounter(alt.id);
+        },
+        className: "h-10 rounded-lg border px-3 text-[13px] font-bold"
+      }, parties.map(function(p) {
+        return h("option", { key: p.id, value: p.id }, p.id + (p.status === "Deactive" ? " (Deactive)" : ""));
+      })),
+      h("div", { className: "text-[18px] font-black " + (balMapData.total >= 0 ? "text-green-600" : "text-red-600") }, "Balance: " + fmtINR(balMapData.total))
     ),
-    h("div", { className: "p-4" },
-      h("div", { className: "bg-white p-3 rounded-xl border mb-4 flex gap-3 items-center" },
-        h("label", { className: "font-bold text-sm" }, "Party:"),
-        h("select", {
-          value: selectedParty,
-          onChange: function(e) { setSelectedParty(e.target.value); },
-          className: "border rounded px-3 py-2"
-        }, partyOpts),
-        h("div", {
-          className: "text-lg font-black " + (totalBalance >= 0 ? "text-green-600" : "text-red-600")
-        }, "₹" + totalBalance.toLocaleString("en-IN"))
+    h("div", { className: "flex gap-2 items-center" },
+      h("div", { className: "text-[11px] font-bold px-2 py-1 rounded-full " + (cloudSaveStatus === "saving" ? "bg-amber-100 text-amber-700" : cloudSaveStatus === "saved" ? "bg-green-100 text-green-700" : cloudSaveStatus === "error" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500") },
+        cloudSaveStatus === "saving" ? "☁️ Saving..." : cloudSaveStatus === "saved" ? "✓ Saved" : cloudSaveStatus === "error" ? "❌ Failed" : "☁️ Cloud"
       ),
-      h("div", { className: "bg-white rounded-xl border mb-4 overflow-hidden" },
-        h("table", { className: "w-full text-sm" },
-          h("thead", { className: "bg-slate-100" },
-            h("tr", null,
-              h("th", { className: "p-2 text-left text-xs uppercase" }, "Date"),
-              h("th", { className: "p-2 text-left text-xs uppercase" }, "Counter"),
-              h("th", { className: "p-2 text-left text-xs uppercase" }, "Remark"),
-              h("th", { className: "p-2 text-right text-xs uppercase" }, "Debit"),
-              h("th", { className: "p-2 text-right text-xs uppercase" }, "Credit"),
-              h("th", { className: "p-2 text-right text-xs uppercase" }, "Balance"),
-              h("th", { className: "p-2 text-left text-xs uppercase" }, "Act")
+      h("button", { onClick: exportCSV, className: "h-9 px-3 rounded-lg text-[13px] border border-slate-200 bg-white" }, "📊 Excel"),
+      h("button", { onClick: function() { requirePin(function() { setConfirmFinal(true); }, "FINAL"); }, className: "h-9 px-4 rounded-lg text-[13px] font-bold bg-cyan-500 text-white" }, "FINAL"),
+      h("button", { onClick: safeLogout, className: "h-9 px-3 rounded-lg text-[13px] font-bold border border-slate-200 bg-white" }, "Logout")
+    )
+  );
+
+  var sidebar = h("aside", { className: "fixed inset-y-0 left-0 w-[260px] border-r bg-white flex flex-col z-50" },
+    h("div", { className: "h-16 flex items-center justify-center border-b" },
+      h("div", { className: "text-[14px] font-black text-cyan-700" }, "ULTRA LEDGER")
+    ),
+    h("div", { className: "p-3 flex flex-col gap-2 flex-1" }, navBtns),
+    h("div", { className: "p-3 border-t text-[10px] font-bold opacity-70" },
+      h("div", null, "☁️ Cloud: ON"),
+      h("div", { className: "mt-1" }, "👤 " + ((profile && (profile.full_name || profile.username)) || ""))
+    )
+  );
+
+  function renderLedger() {
+    var rows = [];
+    if (filteredEntries.length === 0) {
+      rows.push(h("tr", { key: "empty" }, h("td", { colSpan: 7, className: "p-6 text-center opacity-60 text-[13px]" }, "No entries")));
+    } else {
+      for (var i = 0; i < filteredEntries.length; i++) {
+        (function(e) {
+          var bal = balMapData.map.get(e.id) || 0;
+          var locked = isLocked(e);
+          rows.push(h("tr", { key: e.id, className: "border-t border-gray-100" },
+            h("td", { className: "py-0.5 px-2.5 font-mono text-[12px]" }, dmy(e.date) + " " + (e.time || "").slice(0, 5)),
+            h("td", { className: "py-0.5 px-2.5 text-[13px] font-bold" }, e.counterPartyId || "-"),
+            h("td", { className: "py-0.5 px-2.5 text-[13px] font-semibold" }, e.remark || "-"),
+            h("td", { className: "py-0.5 px-2 text-right font-mono text-[13px] text-red-600" }, e.amount < 0 ? absINR(e.amount) : "-"),
+            h("td", { className: "py-0.5 px-2 text-right font-mono text-[13px] text-green-600" }, e.amount > 0 ? fmtINR(e.amount) : "-"),
+            h("td", { className: "py-0.5 px-2 text-right font-mono text-[13px] font-black " + (bal < 0 ? "text-red-600" : "text-green-600") }, fmtINR(bal)),
+            h("td", { className: "py-0.5 px-2" },
+              h("div", { className: "flex gap-1" },
+                h("button", { onClick: function() { handleModify(e); }, disabled: locked, className: "px-1.5 py-0.5 rounded text-[10px] font-bold border " + (locked ? "opacity-20 bg-gray-100" : "bg-yellow-50 text-yellow-700 border-cyan-200") }, "Mod"),
+                h("button", { onClick: function() { handleDelete(e); }, disabled: locked, className: "px-1.5 py-0.5 rounded text-[10px] font-bold border " + (locked ? "opacity-20 bg-gray-100" : "bg-red-50 text-red-600 border-red-200") }, "Del")
+              )
             )
+          ));
+        })(filteredEntries[i]);
+      }
+    }
+    var counterOpts = [];
+    for (var j = 0; j < parties.length; j++) {
+      if (parties[j].id !== selectedParty && parties[j].status === "Active") {
+        counterOpts.push(h("option", { key: parties[j].id, value: parties[j].id }, parties[j].id));
+      }
+    }
+    return h("div", { className: "p-3 flex flex-col gap-3" },
+      h("div", { className: "rounded-xl border p-3 bg-white shadow-sm" },
+        h("div", { className: "flex justify-between items-center mb-3 flex-wrap gap-2" },
+          h("div", { className: "font-black text-[15px]" }, selectedParty + " LEDGER" + (isDeactive ? " (DEACTIVE)" : "")),
+          companyName ? h("div", { className: "text-[15px] font-black text-cyan-700" }, companyName) : h("div", null),
+          h("input", { value: search, onChange: function(e) { setSearch(e.target.value); }, placeholder: "Search...", className: "h-8 w-[200px] rounded-lg border px-3 text-[12px]" })
+        ),
+        h("div", { className: "rounded-lg border overflow-auto max-h-[calc(100vh-340px)]" },
+          h("table", { className: "w-full border-collapse" },
+            h("thead", { className: "sticky top-0 bg-slate-100" },
+              h("tr", null,
+                h("th", { className: "text-left py-1.5 px-2.5 text-[11px] font-black uppercase" }, "Date"),
+                h("th", { className: "text-left py-1.5 px-2.5 text-[11px] font-black uppercase" }, "Counter"),
+                h("th", { className: "text-left py-1.5 px-2.5 text-[11px] font-black uppercase" }, "Remark"),
+                h("th", { className: "text-right py-1.5 px-2 text-[11px] font-black uppercase" }, "Debit"),
+                h("th", { className: "text-right py-1.5 px-2 text-[11px] font-black uppercase" }, "Credit"),
+                h("th", { className: "text-right py-1.5 px-2 text-[11px] font-black uppercase" }, "Balance"),
+                h("th", { className: "text-left py-1.5 px-2 text-[11px] font-black uppercase" }, "Action")
+              )
+            ),
+            h("tbody", null, rows)
+          )
+        ),
+        h("div", { className: "mt-3 pt-3 border-t flex gap-2 items-end", style: isDeactive ? { opacity: 0.4, pointerEvents: "none" } : {} },
+          h("div", { style: { flex: "0 0 22%" } },
+            h("label", { className: "text-[11px] font-black uppercase opacity-70" }, "Counter"),
+            h("select", {
+              ref: counterRef,
+              value: counter,
+              onChange: function(e) { setCounter(e.target.value); },
+              onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); if (amountRef.current) amountRef.current.focus(); } },
+              className: "w-full h-10 rounded-lg border px-3 text-[13px] font-bold"
+            }, counterOpts)
           ),
-          h("tbody", null, tbodyContent)
+          h("div", { style: { flex: "0 0 22%" } },
+            h("label", { className: "text-[11px] font-black uppercase opacity-70" }, "Amount"),
+            h("input", {
+              ref: amountRef,
+              value: amount,
+              onChange: function(e) { if (/^[+\-\d.\s\/]*$/.test(e.target.value)) setAmount(e.target.value); },
+              onKeyDown: function(e) {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (!amount.trim()) { showToast("Enter amount"); return; }
+                  if (remarkRef.current) remarkRef.current.focus();
+                }
+              },
+              placeholder: counter && allPartyBalances[counter] !== undefined ? "Bal: " + fmtINR(allPartyBalances[counter]) : "100/200",
+              className: "w-full h-10 rounded-lg border px-3 text-[15px] font-black"
+            })
+          ),
+          h("div", { style: { flex: "1" } },
+            h("label", { className: "text-[11px] font-black uppercase opacity-70" }, "Remark"),
+            h("input", {
+              ref: remarkRef,
+              value: remark,
+              onChange: function(e) { setRemark(e.target.value); },
+              onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); if (addBtnRef.current) addBtnRef.current.focus(); } },
+              placeholder: "Pay...",
+              className: "w-full h-10 rounded-lg border px-3 text-[13px] font-semibold"
+            })
+          ),
+          h("button", {
+            ref: addBtnRef,
+            onClick: handleAdd,
+            onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); handleAdd(); } },
+            className: "h-10 px-4 rounded-lg font-black text-[14px] bg-cyan-600 text-white"
+          }, "ADD")
+        )
+      )
+    );
+  }
+
+  function renderParty() {
+    var partyRows = parties.map(function(p) {
+      var bal = allPartyBalances[p.id] || 0;
+      var active = p.status === "Active";
+      var frCount = 0;
+      for (var i = 0; i < finals.length; i++) if (finals[i].partyId === p.id) frCount++;
+      return h("div", { key: p.id, className: "py-3 flex items-center justify-between border-t" },
+        h("div", { className: "flex items-center gap-3" },
+          h("div", { className: "w-10 h-10 rounded-full flex items-center justify-center font-black bg-slate-900 text-white" }, p.id[0]),
+          h("div", null,
+            h("div", { className: "font-black text-[14px]" }, p.name),
+            h("span", { className: "px-2 py-0.5 rounded-full text-[10px] font-black border " + (active ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800") }, p.status),
+            h("div", { className: "text-[13px] font-bold font-mono " + (bal < 0 ? "text-red-600" : "text-green-600") }, fmtINR(bal))
+          )
+        ),
+        h("div", { className: "flex gap-2" },
+          h("button", { onClick: function() { requestToggle(p); }, className: "h-9 px-3 rounded-full text-[12px] font-black border " + (active ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800") }, active ? "Active" : "Deactive"),
+          h("button", { onClick: function() { requestEditParty(p); }, className: "h-9 px-3 rounded-full text-[12px] font-black border border-slate-200 bg-white" }, "Modify")
+        )
+      );
+    });
+    return h("div", { className: "p-4 max-w-5xl mx-auto w-full flex flex-col gap-4" },
+      h("div", { className: "rounded-xl border p-6 bg-white" },
+        h("div", { className: "font-black text-[15px] mb-4" }, "PARTY MANAGER"),
+        h("div", { className: "flex gap-3" },
+          h("input", { value: newPartyName, onChange: function(e) { setNewPartyName(e.target.value.toUpperCase()); }, placeholder: "AA BB", className: "flex-1 h-12 rounded-xl border px-4 text-[15px] font-bold" }),
+          h("button", { onClick: addParty, className: "h-12 px-6 rounded-xl bg-cyan-600 text-white font-black text-[13px]" }, "Add")
         )
       ),
-      h("div", { className: "bg-white p-3 rounded-xl border flex gap-2" },
-        h("div", { style: { flex: "0 0 20%" } },
-          h("select", {
-            value: counter,
-            onChange: function(e) { setCounter(e.target.value); },
-            className: "w-full border rounded p-2"
-          }, counterOpts)
-        ),
-        h("input", {
-          value: amount,
-          onChange: function(e) { setAmount(e.target.value); },
-          placeholder: "Amount",
-          className: "border rounded p-2",
-          style: { flex: "0 0 20%" }
-        }),
-        h("input", {
-          value: remark,
-          onChange: function(e) { setRemark(e.target.value); },
-          placeholder: "Remark",
-          className: "border rounded p-2",
-          style: { flex: "1" },
-          onKeyDown: function(e) {
-            if (e.key === "Enter") addEntry();
-          }
-        }),
-        h("button", {
-          onClick: addEntry,
-          className: "bg-cyan-600 text-white px-5 rounded font-bold"
-        }, "ADD")
+      h("div", { className: "rounded-xl border p-6 bg-white" },
+        h("div", { className: "font-black text-[14px] mb-3" }, "ALL PARTIES"),
+        partyRows
       )
-    )
+    );
+  }
+
+  function renderFinal() {
+    var rows = [];
+    for (var i = 0; i < finalRows.length; i++) {
+      (function(r) {
+        rows.push(h("tr", { key: r.id, className: "border-t " + (r.isClosing ? "bg-cyan-300" : r.isOpeningEntry ? "bg-amber-50" : "") },
+          h("td", { className: "py-0.5 px-2.5 font-mono text-[12px]" }, dmy(r.date)),
+          h("td", { className: "py-0.5 px-2.5 font-black text-[12px]" }, r.partyId),
+          h("td", { className: "py-0.5 px-2.5 font-bold" }, r.counterPartyId || "-"),
+          h("td", { className: "py-0.5 px-2.5 font-semibold" }, r.remark || "-"),
+          h("td", { className: "py-0.5 px-2 text-right font-mono" }, r._debit === "-" ? "-" : absINR(r._debit)),
+          h("td", { className: "py-0.5 px-2 text-right font-mono" }, r._credit === "-" ? "-" : fmtINR(r._credit)),
+          h("td", { className: "py-0.5 px-2 text-right font-mono font-black " + (r._bal < 0 ? "text-red-600" : "text-green-600") }, fmtINR(r._bal))
+        ));
+      })(finalRows[i]);
+    }
+    return h("div", { className: "p-4" },
+      h("div", { className: "max-w-[1150px] mx-auto" },
+        h("div", { className: "flex items-center gap-2 mb-3 flex-wrap" },
+          h("div", { className: "font-black text-[14px]" }, "FINAL REPORT"),
+          h("select", { value: finalFilter, onChange: function(e) { setFinalFilter(e.target.value); }, className: "h-9 rounded-lg border px-3 text-[13px] font-bold" },
+            h("option", { value: "" }, "Select Party..."),
+            parties.map(function(p) { return h("option", { key: p.id, value: p.id }, p.id); })
+          )
+        ),
+        h("div", { className: "rounded-lg border overflow-auto max-h-[calc(100vh-200px)] bg-white" },
+          h("table", { className: "w-full" },
+            h("thead", { className: "sticky top-0 bg-slate-100" },
+              h("tr", null, ["Date", "Party", "Counter", "Remark", "Debit", "Credit", "Balance"].map(function(hd) {
+                return h("th", { key: hd, className: "text-left py-1.5 px-2.5 text-[11px] font-black uppercase" }, hd);
+              }))
+            ),
+            h("tbody", null,
+              rows.length === 0 ? h("tr", null, h("td", { colSpan: 7, className: "p-8 text-center opacity-60" }, finalFilter ? "No FINAL records" : "Select a party")) : null,
+              rows
+            )
+          )
+        )
+      )
+    );
+  }
+
+  function renderTrial() {
+    var dpRows = trial.debitParties.length === 0
+      ? [h("div", { key: "none", className: "text-center py-6 opacity-60" }, "None")]
+      : trial.debitParties.map(function(p) {
+          return h("div", { key: p.party.id, className: "flex justify-between py-2 border-t" },
+            h("span", null, p.party.id),
+            h("span", { className: "font-mono font-black text-red-600" }, fmtINR(p.bal))
+          );
+        });
+    var cpRows = trial.creditParties.length === 0
+      ? [h("div", { key: "none", className: "text-center py-6 opacity-60" }, "None")]
+      : trial.creditParties.map(function(p) {
+          return h("div", { key: p.party.id, className: "flex justify-between py-2 border-t" },
+            h("span", null, p.party.id),
+            h("span", { className: "font-mono font-black text-green-600" }, fmtINR(p.bal))
+          );
+        });
+    return h("div", { className: "p-4 max-w-6xl mx-auto w-full flex flex-col gap-4" },
+      h("div", { className: "rounded-xl border p-4 flex flex-wrap gap-3 items-center bg-white" },
+        h("span", { className: "text-[13px] font-black" }, "From"),
+        h("input", { type: "date", value: filterFrom, onChange: function(e) { setFilterFrom(e.target.value); }, className: "h-11 rounded-lg border px-3 text-[13px] font-bold" }),
+        h("span", { className: "text-[13px] font-black" }, "To"),
+        h("input", { type: "date", value: filterTo, onChange: function(e) { setFilterTo(e.target.value); }, className: "h-11 rounded-lg border px-3 text-[13px] font-bold" }),
+        h("button", { onClick: function() { setFilterFrom(""); setFilterTo(""); }, className: "h-11 px-5 rounded-lg border text-[13px] font-black bg-white" }, "Clear")
+      ),
+      h("div", { className: "grid grid-cols-4 gap-4" },
+        h("div", { className: "rounded-xl border p-5 bg-red-50 border-red-200" },
+          h("div", { className: "text-[11px] font-black text-red-800 uppercase" }, "TOTAL DEBIT"),
+          h("div", { className: "text-[22px] font-black text-red-600" }, absINR(trial.debit))
+        ),
+        h("div", { className: "rounded-xl border p-5 bg-green-50 border-green-200" },
+          h("div", { className: "text-[11px] font-black text-green-800 uppercase" }, "TOTAL CREDIT"),
+          h("div", { className: "text-[22px] font-black text-green-600" }, fmtINR(trial.credit))
+        ),
+        h("div", { className: "rounded-xl border p-5 bg-cyan-50 border-cyan-200" },
+          h("div", { className: "text-[11px] font-black text-cyan-800 uppercase" }, "DIFFERENCE"),
+          h("div", { className: "text-[22px] font-black text-cyan-700" }, absINR(trial.diff))
+        ),
+        h("div", { className: "rounded-xl border p-5 bg-gray-900 text-white" },
+          h("div", { className: "text-[11px] font-black opacity-70 uppercase" }, "STATUS"),
+          h("div", { className: "text-[16px] font-black" }, trial.status)
+        )
+      ),
+      h("div", { className: "grid md:grid-cols-2 gap-4" },
+        h("div", { className: "rounded-xl border p-4 bg-white" },
+          h("div", { className: "font-black text-[13px] mb-3" }, "DEBIT"),
+          dpRows
+        ),
+        h("div", { className: "rounded-xl border p-4 bg-white" },
+          h("div", { className: "font-black text-[13px] mb-3" }, "CREDIT"),
+          cpRows
+        )
+      )
+    );
+  }
+
+  function renderProfile() {
+    return h("div", { className: "p-4 max-w-2xl mx-auto w-full flex flex-col gap-4" },
+      h("div", { className: "rounded-xl border p-6 bg-white" },
+        h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "👤 MY ACCOUNT"),
+        h("div", { className: "flex items-center gap-4" },
+          h("div", { className: "w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white flex items-center justify-center text-[24px] font-black" },
+            ((profile && (profile.full_name || profile.username)) || "?").charAt(0).toUpperCase()),
+          h("div", null,
+            h("div", { className: "text-[18px] font-black" }, (profile && (profile.full_name || profile.username)) || "User"),
+            h("div", { className: "text-[12px] font-bold text-slate-500 font-mono" }, "@" + ((profile && profile.username) || ""))
+          )
+        )
+      ),
+      h(ChangePasswordCard, null),
+      h("div", { className: "rounded-xl border p-6 bg-white" },
+        h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "🏢 COMPANY NAME"),
+        h("div", { className: "flex gap-3" },
+          h("input", { value: companyNameInput, onChange: function(e) { setCompanyNameInput(e.target.value); }, placeholder: "Company name", className: "flex-1 h-12 rounded-lg border px-4 text-[14px] font-bold" }),
+          h("button", { onClick: saveCompanyName, className: "h-12 px-6 rounded-lg bg-cyan-600 text-white font-black text-[13px]" }, "💾 Save"),
+          companyName ? h("button", { onClick: clearCompanyName, className: "h-12 px-4 rounded-lg bg-red-100 text-red-700 border border-red-300 text-[12px] font-black" }, "🗑️ Clear") : null
+        )
+      ),
+      h("div", { className: "rounded-xl border p-6 bg-white" },
+        h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "🔐 PIN SECURITY"),
+        !pin ? h("div", { className: "flex gap-3 flex-wrap" },
+          h("input", { type: "password", maxLength: 6, value: pinInput, onChange: function(e) { setPinInput(e.target.value.replace(/[^0-9]/g, "")); setPinMsg(""); }, placeholder: "4-6 digit PIN", className: "h-12 rounded-lg border px-4 text-[14px] font-bold w-[200px]" }),
+          h("button", { onClick: function() { if (pinInput.length < 4) { setPinMsg("Min 4 digits"); return; } setPin(pinInput); setPinInput(""); saveNow({ pin: pinInput }); showToast("PIN Set"); }, className: "h-12 px-6 rounded-lg bg-cyan-600 text-white font-black text-[13px]" }, "Set PIN"),
+          pinMsg ? h("div", { className: "text-[12px] text-red-600" }, pinMsg) : null
+        ) : h("div", { className: "flex gap-3 items-center" },
+          h("span", { className: "px-4 py-2 rounded-lg bg-green-50 text-green-800 font-black" }, "PIN SET"),
+          h("button", { onClick: removePin, className: "h-10 px-4 rounded-lg bg-red-100 text-red-700 font-black text-[12px]" }, "Remove PIN")
+        )
+      ),
+      h("div", { className: "rounded-xl border p-6 bg-white" },
+        h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "💾 BACKUP"),
+        h("div", { className: "flex gap-3" },
+          h("button", { onClick: handleBackup, className: "h-12 px-6 rounded-lg border bg-white font-black text-[13px]" }, "⬇️ Backup JSON"),
+          h("button", { onClick: triggerRestore, className: "h-12 px-6 rounded-lg border bg-white font-black text-[13px]" }, "⬆️ Restore"),
+          h("input", { ref: fileInputRef, type: "file", accept: ".json", onChange: handleRestore, className: "hidden" })
+        )
+      )
+    );
+  }
+
+  var content = null;
+  if (tab === "ledger") content = renderLedger();
+  else if (tab === "party") content = renderParty();
+  else if (tab === "final") content = renderFinal();
+  else if (tab === "trial") content = renderTrial();
+  else if (tab === "profile") content = renderProfile();
+
+  return h("div", { className: "min-h-screen flex flex-col bg-slate-50" },
+    header,
+    h("div", { className: "flex flex-1 relative" },
+      sidebar,
+      h("main", { className: "flex-1 ml-[260px] min-w-0 flex flex-col overflow-auto" }, content)
+    ),
+
+    editEntry ? h("div", { className: "fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick: function() { setEditEntry(null); } },
+      h("div", { className: "w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px] mb-3" }, "Modify"),
+        h("div", { className: "space-y-3" },
+          h("input", { type: "date", value: editForm.date, onChange: function(e) { setEditForm({ date: e.target.value, counter: editForm.counter, amount: editForm.amount, remark: editForm.remark }); }, className: "w-full h-10 rounded-lg border px-3 text-[13px] font-bold" }),
+          h("input", { value: editForm.counter, onChange: function(e) { setEditForm({ date: editForm.date, counter: e.target.value.toUpperCase(), amount: editForm.amount, remark: editForm.remark }); }, className: "w-full h-10 rounded-lg border px-3 text-[13px] font-bold" }),
+          h("input", { value: editForm.amount, onChange: function(e) { setEditForm({ date: editForm.date, counter: editForm.counter, amount: e.target.value, remark: editForm.remark }); }, className: "w-full h-10 rounded-lg border px-3 text-[15px] font-black" }),
+          h("input", { value: editForm.remark, onChange: function(e) { setEditForm({ date: editForm.date, counter: editForm.counter, amount: editForm.amount, remark: e.target.value }); }, className: "w-full h-10 rounded-lg border px-3 text-[13px]" }),
+          h("div", { className: "flex gap-2" },
+            h("button", { onClick: function() { setEditEntry(null); }, className: "flex-1 h-11 rounded-lg border font-bold bg-white" }, "Cancel"),
+            h("button", { onClick: saveModify, className: "flex-1 h-11 rounded-lg font-black bg-cyan-600 text-white" }, "Save")
+          )
+        )
+      )
+    ) : null,
+
+    deleteEntry ? h("div", { className: "fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick: function() { setDeleteEntry(null); } },
+      h("div", { className: "w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px] mb-3" }, "Delete Entry?"),
+        h("div", { className: "flex gap-2" },
+          h("button", { onClick: function() { setDeleteEntry(null); }, className: "flex-1 h-11 rounded-lg border font-bold bg-white" }, "Cancel"),
+          h("button", { onClick: confirmDelete, className: "flex-1 h-11 rounded-lg bg-red-600 text-white font-black" }, "Delete")
+        )
+      )
+    ) : null,
+
+    confirmFinal ? h("div", { className: "fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick: function() { setConfirmFinal(false); } },
+      h("div", { className: "w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px] mb-3" }, "FINAL Closing – " + selectedParty + "?"),
+        h("div", { className: "flex gap-2" },
+          h("button", { onClick: function() { setConfirmFinal(false); }, className: "flex-1 h-11 rounded-lg border font-bold bg-white" }, "Cancel"),
+          h("button", { onClick: doFinal, className: "flex-1 h-11 rounded-lg font-black bg-cyan-500 text-white" }, "Confirm")
+        )
+      )
+    ) : null,
+
+    lockedInfo ? h("div", { className: "fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick: function() { setLockedInfo(null); } },
+      h("div", { className: "w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px] mb-3" }, "🔒 Locked"),
+        h("p", { className: "text-[13px] mb-4" }, lockedInfo.reason),
+        h("button", { onClick: function() { setLockedInfo(null); }, className: "w-full h-11 rounded-lg bg-black text-white font-black" }, "OK")
+      )
+    ) : null,
+
+    partyConfirm ? h("div", { className: "fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick: function() { setPartyConfirm(null); } },
+      h("div", { className: "w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px] mb-3" }, 'Create "' + partyConfirm.name + '"?'),
+        h("div", { className: "flex gap-2" },
+          h("button", { onClick: function() { setPartyConfirm(null); }, className: "flex-1 h-11 rounded-lg border font-bold bg-white" }, "Cancel"),
+          h("button", { onClick: confirmAddParty, className: "flex-1 h-11 rounded-lg font-black bg-cyan-600 text-white" }, "Create")
+        )
+      )
+    ) : null,
+
+    toggleConfirm ? h("div", { className: "fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick: function() { setToggleConfirm(null); } },
+      h("div", { className: "w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px] mb-3" }, toggleConfirm.next + " " + toggleConfirm.party.id + "?"),
+        h("div", { className: "flex gap-2" },
+          h("button", { onClick: function() { setToggleConfirm(null); }, className: "flex-1 h-11 rounded-lg border font-bold bg-white" }, "No"),
+          h("button", { onClick: confirmToggle, className: "flex-1 h-11 rounded-lg font-black bg-cyan-600 text-white" }, "Yes")
+        )
+      )
+    ) : null,
+
+    editParty ? h("div", { className: "fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick: function() { setEditParty(null); } },
+      h("div", { className: "w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px] mb-3" }, "Modify Party"),
+        h("input", { value: editPartyName, onChange: function(e) { setEditPartyName(e.target.value.toUpperCase()); }, className: "w-full h-11 rounded-lg border px-3 text-[15px] font-black" }),
+        h("div", { className: "flex gap-2 mt-3" },
+          h("button", { onClick: function() { setEditParty(null); }, className: "flex-1 h-11 rounded-lg border font-bold bg-white" }, "Cancel"),
+          h("button", { onClick: savePartyEdit, className: "flex-1 h-11 rounded-lg font-black bg-cyan-600 text-white" }, "Save")
+        )
+      )
+    ) : null,
+
+    pinPrompt ? h("div", { className: "fixed inset-0 z-[95] bg-black/70 flex items-center justify-center p-4", onClick: function() { setPinPrompt(null); } },
+      h("div", { className: "w-full max-w-[400px] rounded-xl bg-white shadow-2xl p-5 flex flex-col gap-3", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px]" }, "🔐 PIN Required"),
+        h("div", { className: "text-[12px] text-gray-600" }, "Confirm: " + pinPrompt.label),
+        h("input", { type: "password", autoFocus: true, maxLength: 6, value: pinPromptInput, onChange: function(e) { setPinPromptInput(e.target.value.replace(/[^0-9]/g, "")); setPinPromptErr(""); }, onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); confirmPin(); } }, placeholder: "PIN", className: "w-full h-12 rounded-lg border-2 px-4 text-[18px] font-black tracking-widest text-center" }),
+        pinPromptErr ? h("div", { className: "text-[12px] text-red-600 text-center font-bold" }, pinPromptErr) : null,
+        h("div", { className: "flex gap-2" },
+          h("button", { onClick: function() { setPinPrompt(null); }, className: "flex-1 h-11 rounded-lg border font-black" }, "Cancel"),
+          h("button", { onClick: confirmPin, className: "flex-1 h-11 rounded-lg bg-black text-white font-black" }, "Confirm")
+        )
+      )
+    ) : null,
+
+    toast ? h("div", { className: "fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-full bg-black text-white text-[14px] font-black shadow-2xl" }, "✓ " + toast) : null
   );
 }
 
-console.log("Rendering App");
-ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+function MainApp() {
+  var m1 = useState(null);
+  var session = m1[0], setSession = m1[1];
+  var m2 = useState(null);
+  var profile = m2[0], setProfile = m2[1];
+  var m3 = useState(false);
+  var ready = m3[0], setReady = m3[1];
+  var m4 = useState(null);
+  var cloudState = m4[0], setCloudState = m4[1];
+  var m5 = useState(null);
+  var companyId = m5[0], setCompanyId = m5[1];
+  var m6 = useState("idle");
+  var saveStatus = m6[0], setSaveStatus = m6[1];
+
+  useEffect(function() {
+    sb.auth.getSession().then(function(r) {
+      if (r.data.session) {
+        setSession(r.data.session);
+        loadAll(r.data.session);
+      } else {
+        setReady(true);
+      }
+    });
+    var sub = sb.auth.onAuthStateChange(function(evt, sess) {
+      if (evt === "SIGNED_OUT") {
+        setSession(null); setProfile(null); setCloudState(null); setCompanyId(null); setReady(true);
+      }
+    });
+    return function() { sub.data.subscription.unsubscribe(); };
+  }, []);
+
+  function loadAll(sess) {
+    sb.from("profiles").select("*").eq("id", sess.user.id).single().then(function(pr) {
+      if (!pr.data || !pr.data.company_id) {
+        sb.auth.signOut();
+        setReady(true);
+        return;
+      }
+      setProfile(pr.data);
+      setCompanyId(pr.data.company_id);
+      var cid = pr.data.company_id;
+
+      sb.from("company_state").select("state").eq("company_id", cid).maybeSingle().then(function(st) {
+        var cloud = (st.data && st.data.state) ? st.data.state : null;
+        var local = null;
+        try {
+          var raw = localStorage.getItem("ul_state_" + cid);
+          if (raw) local = JSON.parse(raw);
+        } catch(ex) {}
+
+        var candidates = [];
+        if (cloud && cloud.ledgers) candidates.push(cloud);
+        if (local && local.ledgers) candidates.push(local);
+
+        var final;
+        if (candidates.length === 0) {
+          final = { parties: SEED_PARTIES, ledgers: [], finals: [], history: [], companyName: "", pin: "", lastBackupTime: 0 };
+        } else {
+          candidates.sort(function(a, b) {
+            return (b.ledgers.length || 0) - (a.ledgers.length || 0);
+          });
+          final = candidates[0];
+        }
+        setCloudState(final);
+        setReady(true);
+      });
+    });
+  }
+
+  function saveCloud(newState) {
+    if (!companyId || !session) return Promise.resolve();
+    setSaveStatus("saving");
+    return sb.from("company_state").upsert({
+      company_id: companyId,
+      state: newState,
+      updated_at: new Date().toISOString(),
+      updated_by: session.user.id
+    }, { onConflict: "company_id" }).then(function(r) {
+      if (r.error) {
+        console.error("Save failed", r.error);
+        setSaveStatus("error");
+        return;
+      }
+      setSaveStatus("saved");
+      setTimeout(function() { setSaveStatus("idle"); }, 1500);
+    });
+  }
+
+  if (!ready) {
+    return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100" },
+      h("div", { className: "text-center" },
+        h("div", { className: "text-[40px] mb-3" }, "📒"),
+        h("div", { className: "text-[15px] font-black text-slate-700" }, "Loading...")
+      )
+    );
+  }
+
+  if (!session || !profile) {
+    return h(LoginScreen, { onLogin: function(sess) {
+      setSession(sess);
+      loadAll(sess);
+    }});
+  }
+
+  return h(OriginalApp, {
+    session: session,
+    profile: profile,
+    companyId: companyId,
+    cloudState: cloudState,
+    saveCloud: saveCloud,
+    cloudSaveStatus: saveStatus,
+    onLogout: function() { sb.auth.signOut(); }
+  });
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(h(MainApp));
 </script>
 </body>
 </html>
