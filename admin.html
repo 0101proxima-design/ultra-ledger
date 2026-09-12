@@ -8,10 +8,14 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<style>body{margin:0;padding:0;font-family:Inter,"Segoe UI",Arial,sans-serif}*{box-sizing:border-box}</style>
+<style>
+  body { margin: 0; padding: 0; font-family: Inter, "Segoe UI", Arial, sans-serif; }
+  * { box-sizing: border-box; }
+</style>
 </head>
 <body>
 <div id="root"></div>
+
 <script>
 const h = React.createElement;
 const { useState, useEffect, useMemo, useRef } = React;
@@ -25,11 +29,19 @@ const EMAIL_DOMAIN = "@ultraledger.local";
 
 function makeThrowaway() {
   return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "throwaway-" + Date.now() + "-" + Math.random() }
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storageKey: "throwaway-admin-" + Date.now() + "-" + Math.random()
+    }
   });
 }
 
-const nowTime = () => new Date().toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+const nowTime = () => {
+  const d = new Date();
+  return d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+};
 
 function App() {
   const [session, setSession] = useState(null);
@@ -43,26 +55,40 @@ function App() {
       if (session) {
         const { data, error } = await sb.from("profiles").select("*").eq("id", session.user.id).single();
         if (error || !data || data.role !== "super_admin") {
-          setAuthError("Aap Super Admin nahi hain");
+          setAuthError("Aap Super Admin nahi hain. Access denied.");
           await sb.auth.signOut();
+          setSession(null);
+          setProfile(null);
         } else {
-          setSession(session); setProfile(data);
+          setSession(session);
+          setProfile(data);
         }
       }
       setLoading(false);
     })();
+
     const { data: sub } = sb.auth.onAuthStateChange(async (event, sess) => {
       if (sess) {
         const { data } = await sb.from("profiles").select("*").eq("id", sess.user.id).single();
-        if (data && data.role === "super_admin") { setSession(sess); setProfile(data); }
-        else { setSession(null); setProfile(null); }
-      } else { setSession(null); setProfile(null); }
+        if (data && data.role === "super_admin") {
+          setSession(sess);
+          setProfile(data);
+        } else {
+          setSession(null);
+          setProfile(null);
+        }
+      } else {
+        setSession(null);
+        setProfile(null);
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
 
   if (loading) return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100" },
-    h("div", { className: "text-center" }, h("div", { className: "text-[44px] mb-3" }, "🔐"), h("div", { className: "text-[15px] font-black text-slate-600" }, "Loading...")));
+    h("div", { className: "text-center" },
+      h("div", { className: "text-[44px] mb-3" }, "🔐"),
+      h("div", { className: "text-[15px] font-black text-slate-600" }, "Loading...")));
 
   if (!session) return h(LoginScreen, { authError, setAuthError });
   return h(Dashboard, { session, profile });
@@ -85,8 +111,9 @@ function LoginScreen({ authError, setAuthError }) {
         await sb.auth.signOut();
         throw new Error("Ye account Super Admin nahi hai");
       }
-    } catch (e) { setErr(e.message || "Login failed"); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(e.message || "Login failed");
+    } finally { setBusy(false); }
   }
 
   return h("div", { className: "min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-100 to-pink-100 p-4" },
@@ -99,12 +126,18 @@ function LoginScreen({ authError, setAuthError }) {
         h("div", { className: "space-y-4" },
           h("div", null,
             h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Email"),
-            h("input", { type: "email", value: email, onChange: e => setEmail(e.target.value), className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500" })),
+            h("input", { type: "email", value: email, onChange: e => setEmail(e.target.value),
+              className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500",
+              placeholder: "superadmin@ultraledger.app" })),
           h("div", null,
             h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Password"),
-            h("input", { type: "password", value: password, onChange: e => setPassword(e.target.value), autoFocus: true, className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500" }))),
+            h("input", { type: "password", value: password, onChange: e => setPassword(e.target.value), autoFocus: true,
+              className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500",
+              placeholder: "••••••••" }))),
         (err || authError) && h("div", { className: "mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700" }, "❌ " + (err || authError)),
-        h("button", { type: "submit", disabled: busy, className: "mt-5 w-full h-12 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-black text-[14px] tracking-wide" }, busy ? "..." : "LOGIN"))));
+        h("button", { type: "submit", disabled: busy,
+          className: "mt-5 w-full h-12 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-black text-[14px] tracking-wide" },
+          busy ? "..." : "LOGIN"))));
 }
 
 function Dashboard({ session, profile }) {
@@ -139,13 +172,19 @@ function Dashboard({ session, profile }) {
     }
     setLoading(false);
   }
+
   useEffect(() => { load(); }, []);
+
+  async function logout() { await sb.auth.signOut(); }
 
   function savePin() {
     if (pinInput.length < 4) { setToast("PIN min 4 digits"); return; }
     localStorage.setItem("admin_pin", pinInput);
-    setPin(pinInput); setPinSet(true); setShowPinSetup(false); setPinInput("");
-    setToast("PIN set ✓");
+    setPin(pinInput);
+    setPinSet(true);
+    setShowPinSetup(false);
+    setPinInput("");
+    setToast("PIN set successfully ✓");
   }
 
   return h("div", { className: "min-h-screen bg-slate-100 flex flex-col" },
@@ -157,8 +196,11 @@ function Dashboard({ session, profile }) {
             h("div", { className: "text-[16px] font-black tracking-tight" }, "SUPER ADMIN"),
             h("div", { className: "text-[10px] font-bold opacity-80 uppercase tracking-widest" }, "Ultra Ledger Owner Panel"))),
         h("div", { className: "flex items-center gap-3" },
-          pinSet && h("button", { onClick: () => setShowPinSetup(true), className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "🔑 PIN"),
-          h("button", { onClick: () => sb.auth.signOut(), className: "h-9 px-4 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "Logout")))),
+          pinSet && h("button", { onClick: () => setShowPinSetup(true),
+            className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "🔑 PIN"),
+          h("button", { onClick: logout,
+            className: "h-9 px-4 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "Logout")))),
+
     h("main", { className: "flex-1 p-6 max-w-7xl w-full mx-auto" },
       h("div", { className: "grid grid-cols-1 md:grid-cols-3 gap-4 mb-6" },
         h("div", { className: "bg-white rounded-2xl border border-slate-200 p-5 shadow-sm" },
@@ -170,60 +212,97 @@ function Dashboard({ session, profile }) {
         h("div", { className: "bg-white rounded-2xl border border-slate-200 p-5 shadow-sm" },
           h("div", { className: "text-[11px] font-black text-slate-500 uppercase tracking-widest" }, "Active Companies"),
           h("div", { className: "text-[30px] font-black text-green-600 mt-1" }, companies.filter(c => c.active).length))),
+
       h("div", { className: "flex items-center justify-between mb-4" },
         h("h2", { className: "text-[18px] font-black text-slate-800" }, "Companies"),
-        h("button", { onClick: () => setShowAddCompany(true), className: "h-10 px-5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px]" }, "+ Add Company")),
+        h("button", { onClick: () => setShowAddCompany(true),
+          className: "h-10 px-5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px]" },
+          "+ Add Company")),
+
       loading ? h("div", { className: "text-center py-10 text-slate-500 font-bold" }, "Loading...") :
       companies.length === 0 ? h("div", { className: "bg-white rounded-2xl border border-slate-200 py-16 text-center" },
         h("div", { className: "text-[48px] mb-3" }, "🏢"),
         h("div", { className: "text-[15px] font-black text-slate-700" }, "Koi company nahi hai"),
         h("div", { className: "text-[12px] font-bold text-slate-500 mt-1" }, "Upar + Add Company dabao")) :
       h("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
-        companies.map(c => h(CompanyCard, { key: c.id, company: c, userCount: userCounts[c.id] || 0, pin, onRefresh: load, setToast, onOpen: () => setSelectedCompany(c) }))),
-      showAddCompany && h(AddCompanyModal, { onClose: () => setShowAddCompany(false), onCreated: () => { load(); setToast("Company created ✓"); } }),
-      selectedCompany && h(CompanyDetailModal, { company: selectedCompany, pin, session, onClose: () => setSelectedCompany(null), onRefresh: load, setToast }),
-      showPinSetup && h(PinSetupModal, { pinInput, setPinInput, savePin, onClose: () => pinSet && setShowPinSetup(false), isFirst: !pinSet })),
-    toast && h("div", { className: "fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-full bg-black text-white text-[13px] font-black shadow-2xl" }, "✓ " + toast));
+        companies.map(c => h(CompanyCard, {
+          key: c.id, company: c, userCount: userCounts[c.id] || 0, pin, onRefresh: load, setToast,
+          onOpen: () => setSelectedCompany(c)
+        }))),
+
+      showAddCompany && h(AddCompanyModal, { pin, onClose: () => setShowAddCompany(false), onCreated: () => { load(); setToast("Company created ✓"); } }),
+      selectedCompany && h(CompanyDetailModal, {
+        company: selectedCompany, pin, session,
+        onClose: () => setSelectedCompany(null),
+        onRefresh: load,
+        setToast
+      }),
+      showPinSetup && h(PinSetupModal, { pinInput, setPinInput, savePin, onClose: () => pinSet && setShowPinSetup(false), isFirst: !pinSet })
+    ),
+
+    toast && h("div", { className: "fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-full bg-black text-white text-[13px] font-black shadow-2xl" }, "✓ " + toast)
+  );
 }
 
 function CompanyCard({ company, userCount, pin, onRefresh, onOpen, setToast }) {
   const [busy, setBusy] = useState(false);
+
   async function deleteCompany() {
-    if (!confirm(`⚠️ DELETE COMPANY\n\n${company.name} (${company.code})\n\nSaara data delete hoga!\n\nContinue?`)) return;
-    const typed = prompt(`Type code to confirm:\n\n${company.code}`);
+    if (userCount > 0) {
+      if (!confirm(`⚠️ Is company me ${userCount} users hain!\n\nContinue?`)) return;
+    }
+    if (!confirm(`⚠️ DELETE COMPANY\n\nCompany: ${company.name}\nCode: ${company.code}\n\nSaara data permanently delete ho jayega!\n\nContinue?`)) return;
+    const typed = prompt(`Type company code to confirm:\n\n${company.code}`);
     if (typed === null) return;
-    if (typed.trim().toUpperCase() !== company.code.toUpperCase()) { alert("❌ Code mismatch"); return; }
-    const enteredPin = prompt("🔐 Enter admin PIN:");
-    if (enteredPin !== pin) { alert("❌ Wrong PIN"); return; }
-    if (!confirm(`FINAL: Delete "${company.name}"?`)) return;
+    if (typed.trim().toUpperCase() !== company.code.toUpperCase()) {
+      alert("❌ Code mismatch. Cancelled.");
+      return;
+    }
+    const enteredPin = prompt("🔐 Enter your admin PIN:");
+    if (!enteredPin) return;
+    if (enteredPin !== pin) {
+      alert("❌ Wrong PIN. Cancelled.");
+      return;
+    }
+    if (!confirm(`FINAL: Delete "${company.name}" and ALL its data?`)) return;
+
     setBusy(true);
     const { error } = await sb.from("companies").delete().eq("id", company.id);
     setBusy(false);
     if (error) { alert("Error: " + error.message); return; }
-    setToast(`Deleted: ${company.name}`);
+    setToast(`Company "${company.name}" deleted`);
     onRefresh();
   }
-  return h("div", { className: "bg-white rounded-2xl border border-slate-200 shadow-sm p-5" },
-    h("div", { className: "flex items-start justify-between mb-4" },
-      h("div", { className: "flex items-center gap-3" },
-        h("div", { className: "w-12 h-12 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center text-[20px] font-black text-purple-700" }, company.name[0]?.toUpperCase() || "?"),
-        h("div", null,
-          h("div", { className: "text-[15px] font-black text-slate-800" }, company.name),
-          h("div", { className: "text-[11px] font-bold text-slate-500 font-mono" }, "Code: " + company.code))),
-      h("span", { className: "px-2.5 py-1 rounded-full text-[10px] font-black border " + (company.active ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200") }, company.active ? "ACTIVE" : "INACTIVE")),
-    h("div", { className: "flex gap-3 mb-4" },
-      h("div", { className: "flex-1 p-3 rounded-lg bg-slate-50 border border-slate-200" },
-        h("div", { className: "text-[10px] font-black text-slate-500 uppercase tracking-widest" }, "Users"),
-        h("div", { className: "text-[18px] font-black text-slate-800 mt-0.5" }, userCount + " / " + company.max_users)),
-      h("div", { className: "flex-1 p-3 rounded-lg bg-slate-50 border border-slate-200" },
-        h("div", { className: "text-[10px] font-black text-slate-500 uppercase tracking-widest" }, "Created"),
-        h("div", { className: "text-[12px] font-bold text-slate-800 mt-1" }, nowTime().split(",")[0]))),
-    h("div", { className: "flex gap-2" },
-      h("button", { onClick: onOpen, className: "flex-1 h-10 rounded-xl bg-slate-900 hover:bg-black text-white font-black text-[12px]" }, "👥 Manage Users"),
-      h("button", { onClick: deleteCompany, disabled: busy, className: "h-10 px-4 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-black text-[12px] disabled:opacity-50" }, busy ? "..." : "🗑️")));
+
+  return h("div", { className: "bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition" },
+    h("div", { className: "p-5" },
+      h("div", { className: "flex items-start justify-between mb-4" },
+        h("div", { className: "flex items-center gap-3" },
+          h("div", { className: "w-12 h-12 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center text-[20px] font-black text-purple-700" },
+            company.name[0]?.toUpperCase() || "?"),
+          h("div", null,
+            h("div", { className: "text-[15px] font-black text-slate-800" }, company.name),
+            h("div", { className: "text-[11px] font-bold text-slate-500 font-mono" }, "Code: " + company.code))),
+        h("span", { className: "px-2.5 py-1 rounded-full text-[10px] font-black border " +
+          (company.active ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200") },
+          company.active ? "ACTIVE" : "INACTIVE")),
+      h("div", { className: "flex gap-3 mb-4" },
+        h("div", { className: "flex-1 p-3 rounded-lg bg-slate-50 border border-slate-200" },
+          h("div", { className: "text-[10px] font-black text-slate-500 uppercase tracking-widest" }, "Users"),
+          h("div", { className: "text-[18px] font-black text-slate-800 mt-0.5" }, userCount + " / " + company.max_users)),
+        h("div", { className: "flex-1 p-3 rounded-lg bg-slate-50 border border-slate-200" },
+          h("div", { className: "text-[10px] font-black text-slate-500 uppercase tracking-widest" }, "Created"),
+          h("div", { className: "text-[12px] font-bold text-slate-800 mt-1" }, nowTime().split(",")[0]))),
+      h("div", { className: "flex gap-2" },
+        h("button", { onClick: onOpen,
+          className: "flex-1 h-10 rounded-xl bg-slate-900 hover:bg-black text-white font-black text-[12px]" },
+          "👥 Manage Users"),
+        h("button", { onClick: deleteCompany, disabled: busy,
+          className: "h-10 px-4 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-black text-[12px] disabled:opacity-50" },
+          busy ? "..." : "🗑️"))));
 }
 
-function AddCompanyModal({ onClose, onCreated }) {
+function AddCompanyModal({ pin, onClose, onCreated }) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [maxUsers, setMaxUsers] = useState(5);
@@ -231,36 +310,54 @@ function AddCompanyModal({ onClose, onCreated }) {
   const [err, setErr] = useState("");
 
   async function create() {
-    if (!name.trim()) return setErr("Name required");
+    if (!name.trim()) return setErr("Company name required");
     const c = code.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "");
-    if (!c) return setErr("Code required");
-    if (maxUsers < 1 || maxUsers > 10) return setErr("Max users 1-10");
+    if (!c) return setErr("Code required (A-Z, 0-9, _ only)");
+    if (maxUsers < 1 || maxUsers > 10) return setErr("Max users 1-10 ke beech");
+
     setBusy(true); setErr("");
-    const { error } = await sb.from("companies").insert({ name: name.trim(), code: c, max_users: maxUsers, active: true });
+    const { error } = await sb.from("companies").insert({
+      name: name.trim(),
+      code: c,
+      max_users: maxUsers,
+      active: true
+    });
     setBusy(false);
     if (error) return setErr(error.message);
-    onCreated(); onClose();
+    onCreated();
+    onClose();
   }
 
   return h("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4", onClick: onClose },
     h("div", { className: "w-full max-w-md bg-white rounded-2xl shadow-2xl p-6", onClick: e => e.stopPropagation() },
       h("div", { className: "flex items-center justify-between mb-5" },
-        h("div", null, h("div", { className: "text-[17px] font-black" }, "Add Company")),
-        h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 font-bold" }, "✕")),
+        h("div", null,
+          h("div", { className: "text-[17px] font-black text-slate-800" }, "Add New Company"),
+          h("div", { className: "text-[12px] font-bold text-slate-500 mt-0.5" }, "Company ke liye code aur limit set karo")),
+        h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 font-bold" }, "✕")),
       h("div", { className: "space-y-4" },
         h("div", null,
-          h("label", { className: "text-[11px] font-black uppercase text-slate-500 block mb-1.5" }, "Company Name"),
-          h("input", { value: name, onChange: e => setName(e.target.value), placeholder: "e.g. Shah Traders", className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500" })),
+          h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Company Name"),
+          h("input", { value: name, onChange: e => setName(e.target.value),
+            placeholder: "e.g. Shah Traders",
+            className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500" })),
         h("div", null,
-          h("label", { className: "text-[11px] font-black uppercase text-slate-500 block mb-1.5" }, "Company Code"),
-          h("input", { value: code, onChange: e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "")), placeholder: "e.g. SHAH", className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold font-mono outline-none focus:border-purple-500" })),
+          h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Company Code"),
+          h("input", { value: code, onChange: e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "")),
+            placeholder: "e.g. SHAH",
+            className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold font-mono outline-none focus:border-purple-500" }),
+          h("div", { className: "text-[10px] font-bold text-slate-500 mt-1" }, "Sirf capital letters, numbers, aur _ allowed")),
         h("div", null,
-          h("label", { className: "text-[11px] font-black uppercase text-slate-500 block mb-1.5" }, "Max Users (1-10)"),
-          h("input", { type: "number", min: 1, max: 10, value: maxUsers, onChange: e => setMaxUsers(parseInt(e.target.value) || 5), className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500" }))),
+          h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Max Users (1-10)"),
+          h("input", { type: "number", min: 1, max: 10, value: maxUsers, onChange: e => setMaxUsers(parseInt(e.target.value) || 5),
+            className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500" }))),
       err && h("div", { className: "mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700" }, "❌ " + err),
       h("div", { className: "flex gap-3 mt-6" },
-        h("button", { onClick: onClose, className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px]" }, "Cancel"),
-        h("button", { onClick: create, disabled: busy, className: "flex-1 h-11 rounded-xl bg-purple-600 text-white font-black text-[13px] disabled:opacity-50" }, busy ? "..." : "Create"))));
+        h("button", { onClick: onClose,
+          className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px] text-slate-700" }, "Cancel"),
+        h("button", { onClick: create, disabled: busy,
+          className: "flex-1 h-11 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px] disabled:opacity-50" },
+          busy ? "..." : "Create Company"))));
 }
 
 function CompanyDetailModal({ company, pin, session, onClose, onRefresh, setToast }) {
@@ -276,55 +373,77 @@ function CompanyDetailModal({ company, pin, session, onClose, onRefresh, setToas
     setUsers(data || []);
     setLoading(false);
   }
+
   useEffect(() => { loadUsers(); }, [company.id]);
 
   async function deleteUser(user) {
-    if (!confirm(`⚠️ DELETE USER\n\n${user.full_name || user.username}\n\nContinue?`)) return;
+    if (!confirm(`⚠️ DELETE USER\n\n${user.full_name || user.username} (@${user.username})\n\nContinue?`)) return;
     const typed = prompt(`Type username to confirm:\n\n${user.username}`);
     if (typed === null) return;
-    if (typed.trim() !== user.username) { alert("❌ Mismatch"); return; }
-    const enteredPin = prompt("🔐 Enter PIN:");
+    if (typed.trim() !== user.username) { alert("❌ Mismatch. Cancelled."); return; }
+    const enteredPin = prompt("🔐 Enter admin PIN:");
     if (enteredPin !== pin) { alert("❌ Wrong PIN"); return; }
+    if (!confirm(`FINAL: Delete user "${user.username}"?`)) return;
+
     const { error } = await sb.from("profiles").delete().eq("id", user.id);
     if (error) { alert("Error: " + error.message); return; }
-    setToast(`User deleted: ${user.username}`);
-    loadUsers(); onRefresh();
+
+    setToast(`User "${user.username}" deleted`);
+    loadUsers();
+    onRefresh();
   }
 
   const canAdd = users.length < company.max_users;
 
   return h("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4", onClick: onClose },
     h("div", { className: "w-full max-w-3xl bg-white rounded-2xl shadow-2xl max-h-[90vh] flex flex-col", onClick: e => e.stopPropagation() },
-      h("div", { className: "px-6 py-4 border-b flex items-center justify-between" },
+      h("div", { className: "px-6 py-4 border-b border-slate-200 flex items-center justify-between" },
         h("div", { className: "flex items-center gap-3" },
-          h("div", { className: "w-11 h-11 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center text-[18px] font-black text-purple-700" }, company.name[0]?.toUpperCase() || "?"),
+          h("div", { className: "w-11 h-11 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center text-[18px] font-black text-purple-700" },
+            company.name[0]?.toUpperCase() || "?"),
           h("div", null,
-            h("div", { className: "text-[16px] font-black" }, company.name),
+            h("div", { className: "text-[16px] font-black text-slate-800" }, company.name),
             h("div", { className: "text-[11px] font-bold text-slate-500 font-mono" }, "Code: " + company.code + " • " + users.length + "/" + company.max_users + " users"))),
-        h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 font-bold" }, "✕")),
+        h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 font-bold" }, "✕")),
       h("div", { className: "flex-1 overflow-auto p-6" },
         h("div", { className: "flex items-center justify-between mb-4" },
           h("div", { className: "text-[13px] font-black text-slate-700" }, "USERS"),
-          canAdd ? h("button", { onClick: () => setShowAddUser(true), className: "h-9 px-4 rounded-lg bg-purple-600 text-white font-black text-[12px]" }, "+ Add User") :
-          h("span", { className: "px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-black" }, "⚠️ Max users reached")),
+          canAdd ? h("button", { onClick: () => setShowAddUser(true),
+            className: "h-9 px-4 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-black text-[12px]" },
+            "+ Add User") : h("span", { className: "px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-black" }, "⚠️ Max users reached")),
         loading ? h("div", { className: "text-center py-10 text-slate-500 font-bold" }, "Loading...") :
         users.length === 0 ? h("div", { className: "text-center py-16 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200" },
           h("div", { className: "text-[40px] mb-2" }, "👤"),
           h("div", { className: "text-[14px] font-black text-slate-600" }, "Koi user nahi"),
           h("div", { className: "text-[12px] font-bold text-slate-500 mt-1" }, "+ Add User dabao")) :
         h("div", { className: "space-y-2" },
-          users.map(u => h("div", { key: u.id, className: "p-4 rounded-xl bg-white border border-slate-200 flex items-center justify-between" },
+          users.map(u => h("div", { key: u.id,
+            className: "p-4 rounded-xl bg-white border border-slate-200 flex items-center justify-between hover:shadow-sm transition" },
             h("div", { className: "flex items-center gap-3" },
-              h("div", { className: "w-11 h-11 rounded-full flex items-center justify-center text-white font-black text-[14px] bg-gradient-to-br from-purple-500 to-pink-500" }, (u.full_name || u.username || "?").charAt(0).toUpperCase()),
+              h("div", { className: "w-11 h-11 rounded-full flex items-center justify-center text-white font-black text-[14px] bg-gradient-to-br from-purple-500 to-pink-500" },
+                (u.full_name || u.username || "?").charAt(0).toUpperCase()),
               h("div", null,
                 h("div", { className: "text-[14px] font-black text-slate-800" }, u.full_name || u.username),
-                h("div", { className: "text-[11px] font-bold text-slate-500 font-mono" }, "@" + u.username))),
+                h("div", { className: "text-[11px] font-bold text-slate-500 font-mono" }, "@" + u.username + " • " + u.id.slice(0, 8)))),
             h("div", { className: "flex gap-2" },
-              h("button", { onClick: () => setEditUser(u), className: "h-9 px-3 rounded-lg border border-slate-300 text-slate-700 font-black text-[11px]" }, "🔑 Reset Password"),
-              h("button", { onClick: () => deleteUser(u), className: "h-9 px-3 rounded-lg border border-red-300 text-red-600 font-black text-[11px]" }, "🗑️")))))),
-      showAddUser && h(AddUserModal, { company, pin, users, onClose: () => setShowAddUser(false), onCreated: (c) => { setCreds(c); loadUsers(); onRefresh(); } }),
-      editUser && h(EditUserModal, { user: editUser, pin, onClose: () => setEditUser(null), onUpdated: () => { setToast(`Password reset: @${editUser.username}`); setEditUser(null); } }),
-      creds && h(CredsModal, { creds, company, onClose: () => setCreds(null) })));
+              h("button", { onClick: () => setEditUser(u),
+                className: "h-9 px-3 rounded-lg border border-slate-300 text-slate-700 font-black text-[11px] hover:bg-slate-50" }, "🔑 Reset Password"),
+              h("button", { onClick: () => deleteUser(u),
+                className: "h-9 px-3 rounded-lg border border-red-300 text-red-600 font-black text-[11px] hover:bg-red-50" }, "🗑️")))))),
+
+      showAddUser && h(AddUserModal, {
+        company, session, pin, users, onClose: () => setShowAddUser(false),
+        onCreated: (creds) => { setCreds(creds); loadUsers(); onRefresh(); }
+      }),
+      editUser && h(EditUserModal, {
+        user: editUser, pin, onClose: () => setEditUser(null),
+        onUpdated: (newPwd) => {
+          setToast(`Password reset for @${editUser.username}`);
+          setEditUser(null);
+        }
+      }),
+      creds && h(CredsModal, { creds, company, onClose: () => setCreds(null) })
+    ));
 }
 
 function AddUserModal({ company, pin, users, onClose, onCreated }) {
@@ -345,53 +464,96 @@ function AddUserModal({ company, pin, users, onClose, onCreated }) {
     if (!username.trim()) return setErr("Username required");
     if (password.length < 6) return setErr("Password min 6 chars");
     const uname = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
-    if (users.some(u => u.username === uname)) return setErr("Username exists");
+    if (!uname) return setErr("Username invalid");
+    if (users.some(u => u.username === uname)) return setErr("Username already exists");
     if (users.length >= company.max_users) return setErr("Max users reached");
+
     setBusy(true); setErr("");
+
     try {
       const email = uname + "." + company.code.toLowerCase() + EMAIL_DOMAIN;
       const t = makeThrowaway();
-      const { data, error } = await t.auth.signUp({
+      let userId = null;
+
+      // Step 1: Try signup
+      const { data: authData, error: authErr } = await t.auth.signUp({
         email, password,
         options: { data: { username: uname, full_name: fullName.trim() || uname, company_id: company.id, role: "user" } }
       });
-      if (error) throw error;
-      if (!data.user) throw new Error("User not created");
-      const { error: pErr } = await sb.from("profiles").insert({
-        id: data.user.id, username: uname, company_id: company.id, role: "user",
-        full_name: fullName.trim() || uname, active: true
-      });
+
+      if (authErr) {
+        // If user already exists in Auth, try to sign in to get the ID
+        if (authErr.message.toLowerCase().includes("already") || authErr.message.toLowerCase().includes("registered")) {
+          const { data: signInData, error: signInErr } = await t.auth.signInWithPassword({ email, password });
+          if (signInErr) {
+            throw new Error("Ye email Supabase Auth me pehle se hai. Kripya Supabase Dashboard → Authentication → Users me '" + email + "' ko delete karo, phir try karo.");
+          }
+          userId = signInData.user.id;
+        } else {
+          throw authErr;
+        }
+      } else if (authData && authData.user) {
+        userId = authData.user.id;
+      } else {
+        throw new Error("User not created in Auth");
+      }
+
+      // Step 2: Upsert profile (not insert)
+      const { error: pErr } = await sb.from("profiles").upsert({
+        id: userId,
+        username: uname,
+        company_id: company.id,
+        role: "user",
+        full_name: fullName.trim() || uname,
+        active: true
+      }, { onConflict: "id" });
+
       if (pErr) throw new Error("Profile error: " + pErr.message);
+
       try { await t.auth.signOut(); } catch (e) {}
+
       onCreated({ username: uname, password, fullName: fullName.trim() || uname, company: company.name, email });
       onClose();
-    } catch (e) { setErr(e.message || "Failed"); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(e.message || "Failed to create user");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return h("div", { className: "fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4", onClick: onClose },
     h("div", { className: "w-full max-w-md bg-white rounded-2xl shadow-2xl p-6", onClick: e => e.stopPropagation() },
       h("div", { className: "flex items-center justify-between mb-5" },
         h("div", null,
-          h("div", { className: "text-[16px] font-black" }, "Add User"),
-          h("div", { className: "text-[12px] font-bold text-slate-500" }, company.name + " • " + users.length + "/" + company.max_users)),
-        h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 font-bold" }, "✕")),
+          h("div", { className: "text-[16px] font-black text-slate-800" }, "Add User"),
+          h("div", { className: "text-[12px] font-bold text-slate-500 mt-0.5" }, company.name + " • " + users.length + "/" + company.max_users)),
+        h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 font-bold" }, "✕")),
       h("div", { className: "space-y-4" },
         h("div", null,
-          h("label", { className: "text-[11px] font-black uppercase text-slate-500 block mb-1.5" }, "Username"),
-          h("input", { value: username, autoFocus: true, onChange: e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "")), placeholder: "e.g. rajesh", className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold font-mono outline-none focus:border-purple-500" })),
+          h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Username"),
+          h("input", { value: username, autoFocus: true, onChange: e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "")),
+            placeholder: "e.g. rajesh",
+            className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold font-mono outline-none focus:border-purple-500" })),
         h("div", null,
-          h("label", { className: "text-[11px] font-black uppercase text-slate-500 block mb-1.5" }, "Full Name (optional)"),
-          h("input", { value: fullName, onChange: e => setFullName(e.target.value), placeholder: "e.g. Rajesh Kumar", className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500" })),
+          h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Full Name (optional)"),
+          h("input", { value: fullName, onChange: e => setFullName(e.target.value),
+            placeholder: "e.g. Rajesh Kumar",
+            className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-purple-500" })),
         h("div", null,
-          h("label", { className: "text-[11px] font-black uppercase text-slate-500 block mb-1.5" }, "Password"),
+          h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Password"),
           h("div", { className: "flex gap-2" },
-            h("input", { value: password, onChange: e => setPassword(e.target.value), className: "flex-1 h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold font-mono outline-none focus:border-purple-500" }),
-            h("button", { type: "button", onClick: suggestPwd, className: "h-12 px-4 rounded-xl border border-purple-300 bg-purple-50 text-purple-700 font-black text-[11px]" }, "🎲 Auto")))),
+            h("input", { value: password, onChange: e => setPassword(e.target.value),
+              placeholder: "min 6 chars",
+              className: "flex-1 h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold font-mono outline-none focus:border-purple-500" }),
+            h("button", { type: "button", onClick: suggestPwd,
+              className: "h-12 px-4 rounded-xl border border-purple-300 bg-purple-50 text-purple-700 font-black text-[11px]" }, "🎲 Auto")))),
       err && h("div", { className: "mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700" }, "❌ " + err),
       h("div", { className: "flex gap-3 mt-6" },
-        h("button", { onClick: onClose, className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px]" }, "Cancel"),
-        h("button", { onClick: create, disabled: busy, className: "flex-1 h-11 rounded-xl bg-purple-600 text-white font-black text-[13px] disabled:opacity-50" }, busy ? "..." : "Create User"))));
+        h("button", { onClick: onClose,
+          className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px] text-slate-700" }, "Cancel"),
+        h("button", { onClick: create, disabled: busy,
+          className: "flex-1 h-11 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px] disabled:opacity-50" },
+          busy ? "..." : "Create User"))));
 }
 
 function EditUserModal({ user, pin, onClose, onUpdated }) {
@@ -410,36 +572,52 @@ function EditUserModal({ user, pin, onClose, onUpdated }) {
     if (newPwd.length < 6) return setErr("Password min 6 chars");
     const enteredPin = prompt("🔐 Enter admin PIN:");
     if (enteredPin !== pin) { setErr("Wrong PIN"); return; }
+
     setBusy(true); setErr("");
     try {
-      const { data, error } = await sb.rpc("admin_reset_password", { target_user_id: user.id, new_password: newPwd });
+      const { data, error } = await sb.rpc("admin_reset_password", {
+        target_user_id: user.id,
+        new_password: newPwd
+      });
       if (error) throw error;
       if (!data) throw new Error("Reset failed");
       onUpdated(newPwd);
-    } catch (e) { setErr(e.message || "Reset failed"); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(e.message || "Reset failed");
+    } finally { setBusy(false); }
   }
 
   return h("div", { className: "fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4", onClick: onClose },
     h("div", { className: "w-full max-w-md bg-white rounded-2xl shadow-2xl p-6", onClick: e => e.stopPropagation() },
       h("div", { className: "flex items-center justify-between mb-5" },
         h("div", null,
-          h("div", { className: "text-[16px] font-black" }, "Reset Password"),
-          h("div", { className: "text-[12px] font-bold text-slate-500" }, "@" + user.username)),
-        h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 font-bold" }, "✕")),
+          h("div", { className: "text-[16px] font-black text-slate-800" }, "Reset Password"),
+          h("div", { className: "text-[12px] font-bold text-slate-500 mt-0.5" }, "@" + user.username + " • " + (user.full_name || ""))),
+        h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 font-bold" }, "✕")),
       h("div", null,
-        h("label", { className: "text-[11px] font-black uppercase text-slate-500 block mb-1.5" }, "New Password"),
+        h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "New Password"),
         h("div", { className: "flex gap-2" },
-          h("input", { value: newPwd, autoFocus: true, onChange: e => setNewPwd(e.target.value), className: "flex-1 h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold font-mono outline-none focus:border-purple-500" }),
-          h("button", { type: "button", onClick: suggestPwd, className: "h-12 px-4 rounded-xl border border-purple-300 bg-purple-50 text-purple-700 font-black text-[11px]" }, "🎲 Auto"))),
+          h("input", { value: newPwd, autoFocus: true, onChange: e => setNewPwd(e.target.value),
+            className: "flex-1 h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold font-mono outline-none focus:border-purple-500" }),
+          h("button", { type: "button", onClick: suggestPwd,
+            className: "h-12 px-4 rounded-xl border border-purple-300 bg-purple-50 text-purple-700 font-black text-[11px]" }, "🎲 Auto"))),
       err && h("div", { className: "mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700" }, "❌ " + err),
       h("div", { className: "flex gap-3 mt-6" },
-        h("button", { onClick: onClose, className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px]" }, "Cancel"),
-        h("button", { onClick: reset, disabled: busy, className: "flex-1 h-11 rounded-xl bg-purple-600 text-white font-black text-[13px] disabled:opacity-50" }, busy ? "..." : "Reset"))));
+        h("button", { onClick: onClose,
+          className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px] text-slate-700" }, "Cancel"),
+        h("button", { onClick: reset, disabled: busy,
+          className: "flex-1 h-11 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px] disabled:opacity-50" },
+          busy ? "..." : "Reset Password"))));
 }
 
 function CredsModal({ creds, company, onClose }) {
-  const txt = `ULTRA LEDGER Login\n\nCompany: ${creds.company}\nUsername: ${creds.username}\nPassword: ${creds.password}`;
+  const txt = `ULTRA LEDGER Login\n\nCompany: ${creds.company}\nUsername: ${creds.username}\nPassword: ${creds.password}\n\nLogin URL: https://0101proxima-design.github.io/ultra-ledger/`;
+
+  function copy() {
+    navigator.clipboard.writeText(txt);
+    alert("Copied!");
+  }
+
   return h("div", { className: "fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-4", onClick: onClose },
     h("div", { className: "w-full max-w-md bg-white rounded-2xl shadow-2xl p-6", onClick: e => e.stopPropagation() },
       h("div", { className: "text-center mb-4" },
@@ -449,10 +627,12 @@ function CredsModal({ creds, company, onClose }) {
         h("div", { className: "text-[13px] font-bold text-green-900" }, "Company: ", h("span", { className: "font-black" }, creds.company)),
         h("div", { className: "text-[13px] font-bold text-green-900" }, "Username: ", h("span", { className: "font-black font-mono" }, creds.username)),
         h("div", { className: "text-[13px] font-bold text-green-900" }, "Password: ", h("span", { className: "font-black font-mono" }, creds.password))),
-      h("div", { className: "text-[11px] font-bold text-slate-500 mb-4 text-center" }, "⚠️ Ye credentials client ko bhej dein"),
+      h("div", { className: "text-[11px] font-bold text-slate-500 mb-4 text-center" }, "⚠️ Ye credentials client ko bhej dein."),
       h("div", { className: "flex gap-3" },
-        h("button", { onClick: () => { navigator.clipboard.writeText(txt); alert("Copied!"); }, className: "flex-1 h-11 rounded-xl bg-slate-800 text-white font-black text-[13px]" }, "📋 Copy"),
-        h("button", { onClick: onClose, className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px]" }, "Done"))));
+        h("button", { onClick: copy,
+          className: "flex-1 h-11 rounded-xl bg-slate-800 text-white font-black text-[13px]" }, "📋 Copy"),
+        h("button", { onClick: onClose,
+          className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px] text-slate-700" }, "Done"))));
 }
 
 function PinSetupModal({ pinInput, setPinInput, savePin, onClose, isFirst }) {
@@ -460,15 +640,17 @@ function PinSetupModal({ pinInput, setPinInput, savePin, onClose, isFirst }) {
     h("div", { className: "w-full max-w-md bg-white rounded-2xl shadow-2xl p-6" },
       h("div", { className: "text-center mb-4" },
         h("div", { className: "text-[44px] mb-2" }, "🔐"),
-        h("div", { className: "text-[16px] font-black" }, isFirst ? "Set Admin PIN" : "Change PIN"),
-        h("div", { className: "text-[12px] font-bold text-slate-500 mt-1" }, "Delete ke waqt ye PIN maangega")),
+        h("div", { className: "text-[16px] font-black text-slate-800" }, isFirst ? "Set Admin PIN" : "Change PIN"),
+        h("div", { className: "text-[12px] font-bold text-slate-500 mt-1" }, "Delete karne se pehle ye PIN maangega (extra protection)")),
       h("input", { type: "password", autoFocus: true, maxLength: 6, value: pinInput,
         onChange: e => setPinInput(e.target.value.replace(/[^0-9]/g, "")),
         placeholder: "4-6 digit PIN",
         className: "w-full h-14 rounded-xl border-2 border-slate-300 px-4 text-[20px] font-black tracking-widest text-center outline-none focus:border-purple-500" }),
       h("div", { className: "flex gap-3 mt-4" },
-        !isFirst && h("button", { onClick: onClose, className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px]" }, "Cancel"),
-        h("button", { onClick: savePin, className: "flex-1 h-11 rounded-xl bg-purple-600 text-white font-black text-[13px]" }, "Save PIN"))));
+        !isFirst && h("button", { onClick: onClose,
+          className: "flex-1 h-11 rounded-xl border border-slate-300 font-black text-[13px] text-slate-700" }, "Cancel"),
+        h("button", { onClick: savePin,
+          className: "flex-1 h-11 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px]" }, "Save PIN"))));
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));
