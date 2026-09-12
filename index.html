@@ -1,980 +1,1380 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ULTRA LEDGER</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <style>
-  body { margin:0; font-family: Inter, Arial, sans-serif; background:#f8fafc; }
-  input:focus, select:focus { outline: 2px solid #06b6d4; }
+  body { margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+  .slide-down { animation: slideDown 0.3s ease-out; }
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script>
-var SB_URL = "https://kzgqsjbayluqyhjhytkt.supabase.co";
-var SB_KEY = "sb_publishable_NllVu5uINdJpICN59kjKQA_ynf6GoUZ";
-var sb = supabase.createClient(SB_URL, SB_KEY);
-var DOMAIN = "@ultraledger.local";
+const h = React.createElement;
+const { useState, useEffect, useMemo, useRef } = React;
 
-var STATE = {
-  session: null, profile: null, companyId: null, companyName: "",
-  parties: [], ledgers: [], finals: [], pin: "", history: [],
-  lastBackup: 0, theme: "ocean",
-  selectedParty: "", counter: "",
-  tab: "ledger", saveStatus: "idle", ready: false,
-  search: "", showCols: { date:true, counter:true, remark:true, debit:true, credit:true, balance:true, action:true },
-  showColDrop: false, frOpen: false, frSearch: "", historyOpen: false, historyFilter: "All",
-  finalFilter: "", finalSearch: "", filterFrom: "", filterTo: ""
-};
-var saveTimer = null;
-var skipSave = true;
+const SB_URL = "https://kzgqsjbayluqyhjhytkt.supabase.co";
+const SB_KEY = "sb_publishable_NllVu5uINdJpICN59kjKQA_ynf6GoUZ";
+const sb = supabase.createClient(SB_URL, SB_KEY);
+const DOMAIN = "@ultraledger.local";
 
-var THEMES = {
-  ocean: { label:"Ocean", pageBg:"bg-[#f8fafc]", header:"bg-white border-slate-200", sbBg:"bg-white", sbActive:"bg-cyan-600 text-white border-cyan-600", sbInactive:"bg-white text-slate-600 border-slate-200", addBtn:"bg-cyan-600 text-white", closingBtn:"bg-cyan-500 text-white", card:"bg-white border-slate-200", input:"bg-white border-slate-200 text-slate-900", tblHeader:"bg-slate-100", logo:"bg-slate-900 text-white" },
-  midnight: { label:"Midnight", pageBg:"bg-black", header:"bg-black border-zinc-800", sbBg:"bg-black", sbActive:"bg-zinc-800 text-white border-zinc-700", sbInactive:"bg-[#111] text-zinc-400 border-zinc-800", addBtn:"bg-white text-black", closingBtn:"bg-zinc-800 text-white border border-zinc-700", card:"bg-[#111] border-zinc-800", input:"bg-zinc-900 border-zinc-800 text-white", tblHeader:"bg-zinc-900", logo:"bg-white text-black" }
-};
+const fmt = function(n) { return isNaN(n) ? "₹0/-" : "₹" + Number(n).toLocaleString("en-IN") + "/-"; };
+const fmtAbs = function(n) { return "₹" + Math.abs(n).toLocaleString("en-IN") + "/-"; };
+const today = function() { return new Date().toISOString().slice(0, 10); };
+const nowT = function() { var d = new Date(); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+const dmy = function(iso) { if (!iso) return "-"; var p = iso.split("-"); return (p.length === 3 && p[0].length === 4) ? p[2] + "-" + p[1] + "-" + p[0] : iso; };
 
-function fmt(n){ if(isNaN(n)||n===null||n===undefined) return "₹0/-"; return "₹"+Number(n).toLocaleString("en-IN")+"/-"; }
-function fmtAbs(n){ return "₹"+Math.abs(n).toLocaleString("en-IN")+"/-"; }
-function today(){ return new Date().toISOString().slice(0,10); }
-function nowT(){ var d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
-function dmy(iso){ if(!iso) return "-"; var p=iso.split("-"); return (p.length===3&&p[0].length===4)?p[2]+"-"+p[1]+"-"+p[0]:iso; }
-function $(id){ return document.getElementById(id); }
-function esc(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-
-var DEFAULT_PARTIES = [
-  { id:"AA", name:"AA", status:"Active" },
-  { id:"BB", name:"BB", status:"Active" }
+const SEED_PARTIES = [
+  { id: "AA", name: "AA", status: "Active" },
+  { id: "BB", name: "BB", status: "Active" }
 ];
 
-function buildSnap(){
-  return {
-    parties: STATE.parties, ledgers: STATE.ledgers, finals: STATE.finals,
-    pin: STATE.pin, theme: STATE.theme, companyName: STATE.companyName,
-    history: STATE.history, lastBackupTime: STATE.lastBackup,
-    selectedParty: STATE.selectedParty, counter: STATE.counter,
-    savedAt: Date.now()
-  };
-}
+const THEMES = {
+  ocean: { label: "Ocean", pageBg: "bg-[#f8fafc]", header: "bg-white border-slate-200", sidebarBg: "bg-white", sidebarActive: "bg-cyan-600 text-white border-cyan-600", sidebarInactive: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50", addBtn: "bg-cyan-600 text-white hover:bg-cyan-700", closingBtn: "bg-cyan-500 text-white", exportBtn: "bg-slate-900 text-white", exportBtnAlt: "bg-white text-slate-700 border border-slate-200", card: "bg-white border-slate-200 shadow-sm", text: "text-slate-900", input: "bg-white border-slate-200 text-slate-900", tableHeader: "bg-slate-100", modBtn: "bg-yellow-50 text-yellow-700 border border-cyan-200", delBtn: "bg-red-50 text-red-600 border border-red-200", logoBg: "bg-slate-900 text-white" },
+  midnight: { label: "Midnight Dark", pageBg: "bg-black", header: "bg-black border-zinc-800", sidebarBg: "bg-black", sidebarActive: "bg-zinc-800 text-white border-zinc-700", sidebarInactive: "bg-[#111] text-zinc-400 border-zinc-800 hover:bg-zinc-900 hover:text-white", addBtn: "bg-white text-black font-semibold", closingBtn: "bg-zinc-800 text-white border border-zinc-700", exportBtn: "bg-white text-black", exportBtnAlt: "bg-[#111] text-zinc-300 border border-zinc-800", card: "bg-[#111] border-zinc-800", text: "text-white", input: "bg-zinc-900 border-zinc-800 text-white", tableHeader: "bg-zinc-900", modBtn: "bg-zinc-800 text-yellow-200 border border-zinc-700", delBtn: "bg-zinc-900 text-red-300 border border-zinc-800", logoBg: "bg-white text-black" }
+};
 
-function saveLocal(){
-  if(!STATE.companyId) return;
-  try{ localStorage.setItem("ul_state_"+STATE.companyId, JSON.stringify(buildSnap())); }catch(e){}
-}
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
-function saveCloud(){
-  if(!STATE.companyId || !STATE.session) return Promise.resolve();
-  var snap = buildSnap();
-  STATE.saveStatus = "saving"; renderStatus();
-  return sb.from("company_state").upsert({
-    company_id: STATE.companyId, state: snap,
-    updated_at: new Date().toISOString(), updated_by: STATE.session.user.id
-  }, { onConflict:"company_id" }).then(function(r){
-    if(r.error){ console.error(r.error); STATE.saveStatus="error"; }
-    else{ STATE.saveStatus="saved"; setTimeout(function(){ STATE.saveStatus="idle"; renderStatus(); }, 1500); }
-    renderStatus();
-  });
-}
-
-function saveNow(){ saveLocal(); saveCloud(); }
-
-function renderStatus(){
-  var el = $("save-status"); if(!el) return;
-  var s = STATE.saveStatus;
-  if(s==="saving"){ el.textContent="Saving..."; el.className="text-[11px] font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-700"; }
-  else if(s==="saved"){ el.textContent="Saved"; el.className="text-[11px] font-bold px-2 py-1 rounded-full bg-green-100 text-green-700"; }
-  else if(s==="error"){ el.textContent="Failed"; el.className="text-[11px] font-bold px-2 py-1 rounded-full bg-red-100 text-red-700"; }
-  else{ el.textContent="Cloud"; el.className="text-[11px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500"; }
-}
-
-/* ========== LOGIN ========== */
-function renderLogin(){
-  $("root").innerHTML = 
-    '<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-cyan-50 p-4">'+
-      '<div class="w-full max-w-md">'+
-        '<div class="text-center mb-6">'+
-          '<div class="text-[52px] mb-2">📒</div>'+
-          '<div class="text-[26px] font-black text-slate-800">ULTRA LEDGER</div>'+
-          '<div class="text-[12px] font-bold text-slate-500 tracking-widest uppercase mt-1">Sign in</div>'+
-        '</div>'+
-        '<form id="login-form" class="bg-white rounded-2xl shadow-xl border border-slate-200 p-7">'+
-          '<div class="space-y-4">'+
-            '<div><label class="text-[11px] font-black uppercase text-slate-500 block mb-1.5">Username</label>'+
-            '<input id="login-username" autofocus placeholder="username" class="w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold"></div>'+
-            '<div><label class="text-[11px] font-black uppercase text-slate-500 block mb-1.5">Password</label>'+
-            '<input id="login-password" type="password" placeholder="********" class="w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold"></div>'+
-          '</div>'+
-          '<div id="login-err" class="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700 hidden"></div>'+
-          '<button type="submit" id="login-btn" class="mt-5 w-full h-12 rounded-xl bg-cyan-600 text-white font-black">LOGIN</button>'+
-        '</form>'+
-      '</div>'+
-    '</div>';
-  bindLogin();
-}
-
-function bindLogin(){
-  $("login-form").onsubmit = function(e){
+  function submit(e) {
     e.preventDefault();
-    var u = $("login-username").value.trim().toLowerCase();
-    var p = $("login-password").value;
-    var err = $("login-err"), btn = $("login-btn");
-    err.classList.add("hidden"); btn.textContent="..."; btn.disabled=true;
-    sb.from("profiles").select("username, company_id").eq("username", u).maybeSingle().then(function(pr){
-      if(!pr.data || !pr.data.company_id){ err.textContent="Username not found"; err.classList.remove("hidden"); btn.disabled=false; btn.textContent="LOGIN"; return; }
-      sb.from("companies").select("code").eq("id", pr.data.company_id).single().then(function(co){
-        if(!co.data){ err.textContent="Company not found"; err.classList.remove("hidden"); btn.disabled=false; btn.textContent="LOGIN"; return; }
+    setErr("");
+    setBusy(true);
+    var u = username.trim().toLowerCase();
+    sb.from("profiles").select("username, company_id").eq("username", u).maybeSingle().then(function(pr) {
+      if (!pr.data || !pr.data.company_id) {
+        setErr("Username not found");
+        setBusy(false);
+        return;
+      }
+      sb.from("companies").select("code").eq("id", pr.data.company_id).single().then(function(co) {
+        if (!co.data) {
+          setErr("Company not found");
+          setBusy(false);
+          return;
+        }
         var email = u + "." + co.data.code.toLowerCase() + DOMAIN;
-        sb.auth.signInWithPassword({ email:email, password:p }).then(function(r){
-          if(r.error){ err.textContent="Wrong username or password"; err.classList.remove("hidden"); btn.disabled=false; btn.textContent="LOGIN"; return; }
-          STATE.session = r.data.session;
-          loadAll();
+        sb.auth.signInWithPassword({ email: email, password: password }).then(function(r) {
+          setBusy(false);
+          if (r.error) {
+            setErr("Wrong username or password");
+            return;
+          }
+          onLogin(r.data.session);
         });
       });
     });
-  };
+  }
+
+  return h("div", { className: "min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-100 to-cyan-50 p-4" },
+    h("div", { className: "w-full max-w-md" },
+      h("div", { className: "text-center mb-6" },
+        h("div", { className: "text-[52px] mb-2" }, "📒"),
+        h("div", { className: "text-[26px] font-black text-slate-800" }, "ULTRA LEDGER"),
+        h("div", { className: "text-[12px] font-bold text-slate-500 tracking-widest uppercase mt-1" }, "Sign in")
+      ),
+      h("form", { onSubmit: submit, className: "bg-white rounded-2xl shadow-xl border border-slate-200 p-7" },
+        h("div", { className: "space-y-4" },
+          h("div", null,
+            h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Username"),
+            h("input", { value: username, onChange: function(e) { setUsername(e.target.value.toLowerCase()); }, autoFocus: true, placeholder: "username", className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-cyan-500" })
+          ),
+          h("div", null,
+            h("label", { className: "text-[11px] font-black uppercase tracking-widest text-slate-500 block mb-1.5" }, "Password"),
+            h("input", { type: "password", value: password, onChange: function(e) { setPassword(e.target.value); }, placeholder: "••••••••", className: "w-full h-12 rounded-xl border border-slate-300 px-4 text-[14px] font-bold outline-none focus:border-cyan-500" })
+          )
+        ),
+        err && h("div", { className: "mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-[12px] font-bold text-red-700" }, "❌ " + err),
+        h("button", { type: "submit", disabled: busy, className: "mt-5 w-full h-12 rounded-xl bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white font-black text-[14px]" }, busy ? "..." : "LOGIN")
+      )
+    )
+  );
 }
 
-/* ========== LOAD ========== */
-function loadAll(){
-  sb.from("profiles").select("*").eq("id", STATE.session.user.id).single().then(function(pr){
-    if(!pr.data || !pr.data.company_id){ sb.auth.signOut(); return; }
-    STATE.profile = pr.data;
-    STATE.companyId = pr.data.company_id;
-    sb.from("companies").select("name").eq("id", STATE.companyId).single().then(function(co){
-      var compName = (co.data && co.data.name) ? co.data.name : "";
-      sb.from("company_state").select("state").eq("company_id", STATE.companyId).maybeSingle().then(function(st){
-        var cloud = (st.data && st.data.state) ? st.data.state : null;
-        var local = null;
-        try{ var raw = localStorage.getItem("ul_state_"+STATE.companyId); if(raw) local = JSON.parse(raw); }catch(e){}
-        var candidates = [];
-        if(cloud && cloud.ledgers) candidates.push(cloud);
-        if(local && local.ledgers) candidates.push(local);
-        var final;
-        if(candidates.length === 0){
-          final = { parties: DEFAULT_PARTIES, ledgers:[], finals:[], history:[], companyName: compName, theme:"ocean", pin:"", lastBackupTime:0 };
+function ChangePasswordCard({ T }) {
+  const [cur, setCur] = useState("");
+  const [nw, setNw] = useState("");
+  const [cf, setCf] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  function change() {
+    setMsg(null);
+    if (!cur) { setMsg({ t: "err", m: "Current password required" }); return; }
+    if (!nw || nw.length < 6) { setMsg({ t: "err", m: "New password min 6 characters" }); return; }
+    if (nw !== cf) { setMsg({ t: "err", m: "Passwords do not match" }); return; }
+    setBusy(true);
+    sb.auth.getUser().then(function(r) {
+      if (!r.data.user || !r.data.user.email) {
+        setMsg({ t: "err", m: "Session expired" });
+        setBusy(false);
+        return;
+      }
+      sb.auth.signInWithPassword({ email: r.data.user.email, password: cur }).then(function(vr) {
+        if (vr.error) {
+          setMsg({ t: "err", m: "Current password is wrong" });
+          setBusy(false);
+          return;
+        }
+        sb.auth.updateUser({ password: nw }).then(function(ur) {
+          setBusy(false);
+          if (ur.error) { setMsg({ t: "err", m: ur.error.message }); return; }
+          setMsg({ t: "ok", m: "✅ Password changed!" });
+          setCur("");
+          setNw("");
+          setCf("");
+        });
+      });
+    });
+  }
+
+  function suggest() {
+    var c = "abcdefghjkmnpqrstuvwxyz23456789";
+    var r = "";
+    for (var i = 0; i < 8; i++) r += c[Math.floor(Math.random() * c.length)];
+    var p = "pass@" + r;
+    setNw(p);
+    setCf(p);
+  }
+
+  return h("div", { className: "rounded-xl border p-6 " + T.card },
+    h("div", { className: "font-black text-[15px] mb-4 uppercase tracking-wide" }, "🔑 CHANGE PASSWORD"),
+    h("div", { className: "space-y-3" },
+      h("div", null,
+        h("label", { className: "text-[11px] font-black uppercase tracking-wide opacity-70 block mb-1.5" }, "Current Password"),
+        h("input", { type: "password", value: cur, onChange: function(e) { setCur(e.target.value); setMsg(null); }, placeholder: "Enter current password", className: "w-full h-12 rounded-lg border px-4 text-[14px] font-bold " + T.input })
+      ),
+      h("div", null,
+        h("label", { className: "text-[11px] font-black uppercase tracking-wide opacity-70 block mb-1.5" }, "New Password (min 6 chars)"),
+        h("div", { className: "flex gap-2" },
+          h("input", { type: "password", value: nw, onChange: function(e) { setNw(e.target.value); setMsg(null); }, placeholder: "Enter new password", className: "flex-1 h-12 rounded-lg border px-4 text-[14px] font-bold " + T.input }),
+          h("button", { type: "button", onClick: suggest, className: "h-12 px-4 rounded-lg bg-cyan-100 text-cyan-700 font-black text-[11px]" }, "🎲 Auto")
+        )
+      ),
+      h("div", null,
+        h("label", { className: "text-[11px] font-black uppercase tracking-wide opacity-70 block mb-1.5" }, "Confirm New Password"),
+        h("input", { type: "password", value: cf, onChange: function(e) { setCf(e.target.value); setMsg(null); }, placeholder: "Re-enter new password", className: "w-full h-12 rounded-lg border px-4 text-[14px] font-bold " + T.input })
+      ),
+      msg && h("div", { className: "p-3 rounded-lg text-[12px] font-bold " + (msg.t === "ok" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700") }, msg.m),
+      h("button", { onClick: change, disabled: busy, className: "w-full h-12 rounded-lg font-black text-[14px] " + (busy ? "opacity-50 " : "") + T.addBtn }, busy ? "Changing..." : "🔒 Change Password")
+    )
+  );
+}
+
+function MainApp() {
+  const [ready, setReady] = useState(false);
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [companyId, setCompanyId] = useState(null);
+  const [initialState, setInitialState] = useState(null);
+  const [saveStatus, setSaveStatus] = useState("idle");
+
+  useEffect(function() {
+    sb.auth.getSession().then(function(r) {
+      if (r.data.session) {
+        setSession(r.data.session);
+        loadAll(r.data.session);
+      } else {
+        setReady(true);
+      }
+    });
+    var sub = sb.auth.onAuthStateChange(function(evt, sess) {
+      if (evt === "SIGNED_OUT") {
+        setSession(null);
+        setProfile(null);
+        setCompanyId(null);
+        setInitialState(null);
+        setReady(true);
+      }
+    });
+    return function() { sub.data.subscription.unsubscribe(); };
+  }, []);
+
+  function loadAll(sess) {
+    sb.from("profiles").select("*").eq("id", sess.user.id).single().then(function(pr) {
+      if (!pr.data || !pr.data.company_id) {
+        sb.auth.signOut();
+        setReady(true);
+        return;
+      }
+      setProfile(pr.data);
+      setCompanyId(pr.data.company_id);
+      var cid = pr.data.company_id;
+
+      sb.from("companies").select("name").eq("id", cid).single().then(function(co) {
+        var compName = (co.data && co.data.name) || "";
+        sb.from("company_state").select("state").eq("company_id", cid).maybeSingle().then(function(st) {
+          var cloud = (st.data && st.data.state) ? st.data.state : null;
+          var local = null;
+          try {
+            var raw = localStorage.getItem("ul_state_" + cid);
+            if (raw) local = JSON.parse(raw);
+          } catch(e) {}
+
+          var candidates = [];
+          if (cloud && cloud.ledgers) candidates.push(cloud);
+          if (local && local.ledgers) candidates.push(local);
+
+          var final;
+          if (candidates.length === 0) {
+            final = { parties: SEED_PARTIES, ledgers: [], finals: [], history: [], companyName: compName, theme: "ocean", pin: "", lastBackupTime: 0 };
+          } else {
+            candidates.sort(function(a, b) { return (b.ledgers.length || 0) - (a.ledgers.length || 0); });
+            final = candidates[0];
+            if (!final.companyName && compName) final.companyName = compName;
+            if (!final.theme) final.theme = "ocean";
+          }
+          setInitialState(final);
+          setReady(true);
+        });
+      });
+    });
+  }
+
+  function saveCloud(newState) {
+    if (!companyId || !session) return Promise.resolve();
+    setSaveStatus("saving");
+    return sb.from("company_state").upsert({
+      company_id: companyId,
+      state: newState,
+      updated_at: new Date().toISOString(),
+      updated_by: session.user.id
+    }, { onConflict: "company_id" }).then(function(r) {
+      if (r.error) {
+        console.error(r.error);
+        setSaveStatus("error");
+        return;
+      }
+      setSaveStatus("saved");
+      setTimeout(function() { setSaveStatus("idle"); }, 1500);
+    });
+  }
+
+  if (!ready) {
+    return h("div", { className: "min-h-screen flex items-center justify-center bg-slate-100" },
+      h("div", { className: "text-center" },
+        h("div", { className: "text-[40px] mb-3" }, "📒"),
+        h("div", { className: "text-[15px] font-black" }, "Loading...")
+      )
+    );
+  }
+
+  if (!session || !profile) {
+    return h(LoginScreen, { onLogin: function(s) { setReady(false); setSession(s); loadAll(s); } });
+  }
+
+  return h(Dashboard, {
+    session: session,
+    profile: profile,
+    companyId: companyId,
+    initialState: initialState,
+    saveCloud: saveCloud,
+    saveStatus: saveStatus,
+    onLogout: function() { sb.auth.signOut(); }
+  });
+}
+
+function Dashboard({ session, profile, companyId, initialState, saveCloud, saveStatus, onLogout }) {
+  const [tab, setTab] = useState("ledger");
+  const [theme, setTheme] = useState(initialState.theme || "ocean");
+  const [companyName, setCompanyName] = useState(initialState.companyName || "");
+  const [parties, setParties] = useState(initialState.parties || SEED_PARTIES);
+  const [ledgers, setLedgers] = useState(initialState.ledgers || []);
+  const [finals, setFinals] = useState(initialState.finals || []);
+  const [pin, setPin] = useState(initialState.pin || "");
+  const [history, setHistory] = useState(initialState.history || []);
+  const [lastBackup, setLastBackup] = useState(initialState.lastBackupTime || 0);
+  const [selectedParty, setSelectedParty] = useState("BB");
+  const [counter, setCounter] = useState("AA");
+  const [amount, setAmount] = useState("");
+  const [remark, setRemark] = useState("");
+  const [search, setSearch] = useState("");
+  const [toast, setToast] = useState(null);
+  const [editEntry, setEditEntry] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [deleteEntry, setDeleteEntry] = useState(null);
+  const [confirmFinal, setConfirmFinal] = useState(false);
+  const [lockedInfo, setLockedInfo] = useState(null);
+  const [pinInput, setPinInput] = useState("");
+  const [pinMsg, setPinMsg] = useState("");
+  const [companyNameInput, setCompanyNameInput] = useState(initialState.companyName || "");
+  const [newPartyName, setNewPartyName] = useState("");
+  const [partyConfirm, setPartyConfirm] = useState(null);
+  const [editParty, setEditParty] = useState(null);
+  const [editPartyName, setEditPartyName] = useState("");
+  const [toggleConfirm, setToggleConfirm] = useState(null);
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [finalFilter, setFinalFilter] = useState("");
+  const [frOpen, setFrOpen] = useState(false);
+  const [frSearch, setFrSearch] = useState("");
+  const [pinPrompt, setPinPrompt] = useState(null);
+  const [pinPromptInput, setPinPromptInput] = useState("");
+  const [pinPromptErr, setPinPromptErr] = useState("");
+  const [showCols, setShowCols] = useState({ date: true, counter: true, remark: true, debit: true, credit: true, balance: true, action: true });
+  const [showColDropdown, setShowColDropdown] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState("All");
+
+  const amountRef = useRef(null);
+  const remarkRef = useRef(null);
+  const counterRef = useRef(null);
+  const addBtnRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const saveTimer = useRef(null);
+  const skipSave = useRef(true);
+
+  useEffect(function() {
+    setTimeout(function() { skipSave.current = false; }, 1500);
+  }, []);
+
+  useEffect(function() {
+    if (skipSave.current) return;
+    var snap = { parties: parties, ledgers: ledgers, finals: finals, pin: pin, theme: theme, companyName: companyName, history: history, lastBackupTime: lastBackup, selectedParty: selectedParty, counter: counter, savedAt: Date.now() };
+    try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(snap)); } catch(e) {}
+  }, [parties, ledgers, finals, pin, theme, companyName, history, lastBackup, selectedParty, counter, companyId]);
+
+  useEffect(function() {
+    if (skipSave.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(function() {
+      if (saveCloud) saveCloud({ parties: parties, ledgers: ledgers, finals: finals, pin: pin, theme: theme, companyName: companyName, history: history, lastBackupTime: lastBackup, selectedParty: selectedParty, counter: counter, savedAt: Date.now() });
+    }, 500);
+    return function() { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [parties, ledgers, finals, pin, theme, companyName, history, lastBackup, selectedParty, counter]);
+
+  useEffect(function() {
+    if (toast) {
+      var t = setTimeout(function() { setToast(null); }, 2500);
+      return function() { clearTimeout(t); };
+    }
+  }, [toast]);
+
+  var T = THEMES[theme] || THEMES.ocean;
+
+  function notify(m) { setToast(m); }
+
+  function saveNow(updates) {
+    var ns = {
+      parties: updates.parties !== undefined ? updates.parties : parties,
+      ledgers: updates.ledgers !== undefined ? updates.ledgers : ledgers,
+      finals: updates.finals !== undefined ? updates.finals : finals,
+      pin: updates.pin !== undefined ? updates.pin : pin,
+      theme: updates.theme !== undefined ? updates.theme : theme,
+      companyName: updates.companyName !== undefined ? updates.companyName : companyName,
+      history: updates.history !== undefined ? updates.history : history,
+      lastBackupTime: updates.lastBackupTime !== undefined ? updates.lastBackupTime : lastBackup,
+      selectedParty: updates.selectedParty !== undefined ? updates.selectedParty : selectedParty,
+      counter: updates.counter !== undefined ? updates.counter : counter,
+      savedAt: Date.now()
+    };
+    try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(ns)); } catch(e) {}
+    if (saveCloud) saveCloud(ns);
+  }
+
+  function logout() {
+    var snap = { parties: parties, ledgers: ledgers, finals: finals, pin: pin, theme: theme, companyName: companyName, history: history, lastBackupTime: lastBackup, selectedParty: selectedParty, counter: counter, savedAt: Date.now() };
+    try { localStorage.setItem("ul_state_" + companyId, JSON.stringify(snap)); } catch(e) {}
+    if (saveCloud) {
+      saveCloud(snap).then(function() { setTimeout(function() { onLogout(); }, 400); });
+    } else {
+      onLogout();
+    }
+  }
+
+  function requirePin(fn, label) {
+    if (!pin) { fn(); return; }
+    setPinPrompt({ run: fn, label: label || "Confirm" });
+    setPinPromptInput("");
+    setPinPromptErr("");
+  }
+
+  function confirmPin() {
+    if (pinPromptInput === pin) {
+      var fn = pinPrompt.run;
+      setPinPrompt(null);
+      setPinPromptInput("");
+      setPinPromptErr("");
+      setTimeout(fn, 50);
+    } else {
+      setPinPromptErr("Wrong PIN");
+    }
+  }
+
+  function parseAmounts(s) {
+    if (!s) return [];
+    var parts = s.split("/");
+    var nums = [];
+    for (var i = 0; i < parts.length; i++) {
+      var n = parseFloat(parts[i].trim());
+      if (!isNaN(n) && n !== 0) nums.push(n);
+    }
+    if (nums.length === 0) {
+      var nn = parseFloat(s);
+      if (!isNaN(nn) && nn !== 0) nums.push(nn);
+    }
+    return nums;
+  }
+
+  function addEntry() {
+    var nums = parseAmounts(amount);
+    if (!nums.length) { notify("Enter amount"); return; }
+    if (selectedParty === counter) { notify("Same party not allowed"); return; }
+    var cp = null;
+    for (var i = 0; i < parties.length; i++) if (parties[i].id === counter) cp = parties[i];
+    if (!cp || cp.status !== "Active") { notify("Counter inactive"); return; }
+
+    var t = Date.now();
+    var date = today();
+    var time = nowT();
+    var newEntries = [];
+    var finalRemark = remark.trim();
+
+    for (var j = 0; j < nums.length; j++) {
+      var n = nums[j];
+      var pid = "pair_" + t + "_" + j;
+      newEntries.push({ id: "e_" + t + "_" + j + "_a", pairId: pid, date: date, time: time, partyId: selectedParty, counterPartyId: counter, amount: n, remark: finalRemark, createdAt: t + j * 2 });
+      newEntries.push({ id: "e_" + t + "_" + j + "_b", pairId: pid, date: date, time: time, partyId: counter, counterPartyId: selectedParty, amount: -n, remark: finalRemark, createdAt: t + j * 2 + 1 });
+    }
+
+    var newLedgers = ledgers.concat(newEntries);
+    setLedgers(newLedgers);
+    setAmount("");
+    setRemark("");
+    saveNow({ ledgers: newLedgers });
+    notify("Added");
+    setTimeout(function() { if (counterRef.current) counterRef.current.focus(); }, 50);
+  }
+
+  function openEdit(e) {
+    if (e.openingLocked || (e.remark || "").toLowerCase() === "opening" || e.finalLocked) {
+      setLockedInfo({ reason: "Entry is locked" });
+      return;
+    }
+    setEditEntry(e);
+    setEditForm({ date: e.date, counter: e.counterPartyId, amount: String(e.amount), remark: e.remark || "" });
+  }
+
+  function saveEdit() {
+    var amt = parseFloat(editForm.amount);
+    if (isNaN(amt) || amt === 0) { notify("Invalid amount"); return; }
+    var finalRemark = (editForm.remark || "").trim();
+    var newLedgers = [];
+    for (var i = 0; i < ledgers.length; i++) {
+      var e = ledgers[i];
+      if (e.pairId !== editEntry.pairId) { newLedgers.push(e); continue; }
+      if (e.openingLocked || (e.remark || "").toLowerCase() === "opening" || e.finalLocked) { newLedgers.push(e); continue; }
+      if (e.partyId === editEntry.partyId) {
+        newLedgers.push({ id: e.id, pairId: e.pairId, date: editForm.date, time: e.time, partyId: e.partyId, counterPartyId: editForm.counter, amount: amt, remark: finalRemark, createdAt: e.createdAt });
+      } else {
+        newLedgers.push({ id: e.id, pairId: e.pairId, date: editForm.date, time: e.time, partyId: editForm.counter, counterPartyId: editEntry.partyId, amount: -amt, remark: finalRemark, createdAt: e.createdAt });
+      }
+    }
+    setLedgers(newLedgers);
+    setEditEntry(null);
+    saveNow({ ledgers: newLedgers });
+    notify("Modified");
+  }
+
+  function openDelete(e) {
+    if (e.openingLocked || (e.remark || "").toLowerCase() === "opening" || e.finalLocked) {
+      setLockedInfo({ reason: "Entry is locked" });
+      return;
+    }
+    setDeleteEntry(e);
+  }
+
+  function doDelete() {
+    var pairId = deleteEntry.pairId;
+    var id = deleteEntry.id;
+    var newLedgers = [];
+    for (var i = 0; i < ledgers.length; i++) {
+      var e = ledgers[i];
+      if (e.openingLocked || (e.remark || "").toLowerCase() === "opening" || e.finalLocked) { newLedgers.push(e); continue; }
+      if (e.pairId && pairId) { if (e.pairId !== pairId) newLedgers.push(e); }
+      else { if (e.id !== id) newLedgers.push(e); }
+    }
+    setLedgers(newLedgers);
+    setDeleteEntry(null);
+    saveNow({ ledgers: newLedgers });
+    notify("Deleted");
+  }
+
+  function requestFinal() { requirePin(function() { setConfirmFinal(true); }, "FINAL Closing"); }
+
+  function doFinal() {
+    var entries = [];
+    for (var i = 0; i < ledgers.length; i++) if (ledgers[i].partyId === selectedParty) entries.push(ledgers[i]);
+    entries.sort(function(a, b) { return a.createdAt - b.createdAt; });
+    var balance = 0;
+    for (var j = 0; j < entries.length; j++) balance += entries[j].amount;
+
+    var t = Date.now();
+    var counterEntries = [];
+    for (var k = 0; k < ledgers.length; k++) {
+      var l = ledgers[k];
+      if (l.counterPartyId === selectedParty && !l.openingLocked && (l.remark || "").toLowerCase() !== "opening" && !l.finalLocked) counterEntries.push(l);
+    }
+
+    var newFinal = { id: "final_" + t, partyId: selectedParty, closedAt: today(), entries: entries, counterEntries: counterEntries, balance: balance, createdAt: t };
+    var newFinals = finals.concat([newFinal]);
+
+    var cps = {};
+    for (var m = 0; m < counterEntries.length; m++) cps[counterEntries[m].pairId] = true;
+
+    var newLedgers = [];
+    for (var n = 0; n < ledgers.length; n++) {
+      var lg = ledgers[n];
+      if (lg.partyId !== selectedParty) {
+        if (cps[lg.pairId]) {
+          var copy = {};
+          for (var kk in lg) copy[kk] = lg[kk];
+          copy.finalLocked = true;
+          newLedgers.push(copy);
         } else {
-          candidates.sort(function(a,b){ return (b.ledgers.length||0) - (a.ledgers.length||0); });
-          final = candidates[0];
-        }
-        STATE.parties = final.parties || DEFAULT_PARTIES;
-        STATE.ledgers = final.ledgers || [];
-        STATE.finals = final.finals || [];
-        STATE.history = final.history || [];
-        STATE.pin = final.pin || "";
-        STATE.theme = final.theme || "ocean";
-        STATE.companyName = final.companyName || compName;
-        STATE.lastBackup = final.lastBackupTime || 0;
-        if(STATE.parties.length > 0){
-          STATE.selectedParty = STATE.parties[0].id;
-          if(STATE.parties.length > 1) STATE.counter = STATE.parties[1].id;
-        }
-        STATE.ready = true;
-        setTimeout(function(){ skipSave = false; }, 1500);
-        render();
-      });
-    });
-  });
-}
-
-function render(){
-  if(!STATE.ready){
-    $("root").innerHTML = '<div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="text-[40px] mb-3">📒</div><div class="font-black">Loading...</div></div></div>';
-    return;
-  }
-  if(!STATE.session || !STATE.profile){ renderLogin(); return; }
-  renderDashboard();
-}
-
-/* ========== DASHBOARD ========== */
-function renderDashboard(){
-  var T = THEMES[STATE.theme] || THEMES.ocean;
-  var po = "";
-  for(var i=0;i<STATE.parties.length;i++){
-    var p = STATE.parties[i];
-    po += '<option value="'+esc(p.id)+'"'+(p.id===STATE.selectedParty?" selected":"")+'>'+esc(p.id)+(p.status==="Deactive"?" (Deactive)":"")+'</option>';
-  }
-  var nav = [
-    {id:"ledger", label:"LEDGER", icon:"📒"},
-    {id:"party", label:"PARTY MANAGER", icon:"👥"},
-    {id:"final", label:"FINAL REPORT", icon:"📄"},
-    {id:"trial", label:"TRIAL BALANCE", icon:"⚖️"},
-    {id:"profile", label:"PROFILE", icon:"👤"}
-  ];
-  var navHtml = "";
-  for(var n=0;n<nav.length;n++){
-    var it = nav[n];
-    var cls = STATE.tab===it.id ? T.sbActive : T.sbInactive;
-    navHtml += '<button data-tab="'+it.id+'" class="tab-btn w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left '+cls+'"><span>'+it.icon+'</span>'+it.label+'</button>';
-  }
-  var user = esc(STATE.profile.full_name || STATE.profile.username);
-  var backText = STATE.lastBackup ? new Date(STATE.lastBackup).toLocaleString("en-IN") : "Never";
-  var html =
-    '<div class="min-h-screen flex flex-col '+T.pageBg+'">'+
-      '<header class="sticky top-0 z-40 border-b flex items-center justify-between px-3 py-2 h-16 '+T.header+'">'+
-        '<div class="flex items-center gap-2 flex-1 flex-wrap">'+
-          '<label class="text-[13px] font-semibold">Party:</label>'+
-          '<select id="header-party" class="h-10 rounded-lg border px-3 text-[13px] font-bold '+T.input+'">'+po+'</select>'+
-          '<div id="header-balance" class="text-[18px] font-black"></div>'+
-        '</div>'+
-        '<div class="flex gap-2 items-center">'+
-          '<div id="save-status" class="text-[11px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500">Cloud</div>'+
-          '<button id="btn-export" class="h-9 px-3 rounded-lg text-[13px] border '+T.exportBtnAlt+'">Excel</button>'+
-          '<button id="btn-logout" class="h-9 px-3 rounded-lg text-[13px] font-bold border">Logout</button>'+
-        '</div>'+
-      '</header>'+
-      '<div class="flex flex-1 relative">'+
-        '<aside class="fixed inset-y-0 left-0 w-[260px] border-r flex flex-col z-50 '+T.sbBg+'">'+
-          '<div class="h-16 flex items-center justify-center border-b"><div class="text-[14px] font-black text-cyan-700">ULTRA LEDGER</div></div>'+
-          '<div class="p-3 flex flex-col gap-2 flex-1">'+navHtml+'</div>'+
-          '<div class="p-3 border-t text-[10px] font-bold opacity-70">'+
-            '<div>Cloud: ON</div>'+
-            '<div class="mt-1">User: '+user+'</div>'+
-            '<div class="mt-1">Backup: '+backText+'</div>'+
-          '</div>'+
-        '</aside>'+
-        '<main id="main-content" class="flex-1 ml-[260px] min-w-0 flex flex-col overflow-auto"></main>'+
-      '</div>'+
-    '</div>';
-  $("root").innerHTML = html;
-  bindDashboard();
-}
-
-function bindDashboard(){
-  var btns = document.querySelectorAll(".tab-btn");
-  for(var i=0;i<btns.length;i++){
-    btns[i].onclick = function(){
-      STATE.tab = this.getAttribute("data-tab");
-      renderDashboard();
-    };
-  }
-  var hp = $("header-party");
-  if(hp){
-    hp.onchange = function(){
-      STATE.selectedParty = this.value;
-      for(var i=0;i<STATE.parties.length;i++){
-        if(STATE.parties[i].id!==STATE.selectedParty && STATE.parties[i].status==="Active"){
-          STATE.counter = STATE.parties[i].id; break;
+          newLedgers.push(lg);
         }
       }
-      saveNow(); renderMain();
-    };
-  }
-  var bl = $("btn-logout"); if(bl) bl.onclick = doLogout;
-  var be = $("btn-export"); if(be) be.onclick = exportCSV;
-  renderMain();
-}
-
-function renderMain(){
-  var m = $("main-content"); if(!m) return;
-  if(STATE.tab==="ledger") m.innerHTML = renderLedger();
-  else if(STATE.tab==="party") m.innerHTML = renderParty();
-  else if(STATE.tab==="final") m.innerHTML = renderFinal();
-  else if(STATE.tab==="trial") m.innerHTML = renderTrial();
-  else m.innerHTML = renderProfile();
-
-  var hb = $("header-balance");
-  if(hb){
-    var t = 0;
-    for(var i=0;i<STATE.ledgers.length;i++) if(STATE.ledgers[i].partyId===STATE.selectedParty) t += STATE.ledgers[i].amount;
-    hb.textContent = "Closing Balance: "+fmt(t);
-    hb.className = "text-[18px] font-black "+(t>=0?"text-green-600":"text-red-600");
-  }
-  renderStatus();
-  bindMain();
-}
-
-/* ========== LEDGER PAGE ========== */
-function renderLedger(){
-  var T = THEMES[STATE.theme] || THEMES.ocean;
-  var entries = [];
-  for(var i=0;i<STATE.ledgers.length;i++) if(STATE.ledgers[i].partyId===STATE.selectedParty) entries.push(STATE.ledgers[i]);
-  entries.sort(function(a,b){ return a.createdAt-b.createdAt; });
-
-  var filtered = entries;
-  if(STATE.search.trim()){
-    var s = STATE.search.toLowerCase();
-    filtered = entries.filter(function(e){
-      return (dmy(e.date)+" "+(e.counterPartyId||"")+" "+(e.remark||"")+" "+e.amount).toLowerCase().indexOf(s)>=0;
-    });
-  }
-
-  var rows = "";
-  var run = 0;
-  for(var j=0;j<filtered.length;j++){
-    var e = filtered[j];
-    run += e.amount;
-    var locked = e.openingLocked || ((e.remark||"").toLowerCase()==="opening") || e.finalLocked;
-    rows += '<tr class="border-t border-gray-100">';
-    if(STATE.showCols.date) rows += '<td class="py-1 px-2.5 font-mono text-[12px]">'+dmy(e.date)+' <span class="ml-1 text-[10px] opacity-60">'+(e.time||"").slice(0,5)+'</span></td>';
-    if(STATE.showCols.counter) rows += '<td class="py-1 px-2.5 text-[13px] font-bold">'+esc(e.counterPartyId||"-")+'</td>';
-    if(STATE.showCols.remark) rows += '<td class="py-1 px-2.5 text-[13px]">'+esc(e.remark||"-")+'</td>';
-    if(STATE.showCols.debit) rows += '<td class="py-1 px-2 text-right font-mono text-[13px] '+(e.amount<0?"text-red-600":"text-gray-300")+'">'+(e.amount<0?fmtAbs(e.amount):"-")+'</td>';
-    if(STATE.showCols.credit) rows += '<td class="py-1 px-2 text-right font-mono text-[13px] '+(e.amount>0?"text-green-600":"text-gray-300")+'">'+(e.amount>0?fmt(e.amount):"-")+'</td>';
-    if(STATE.showCols.balance) rows += '<td class="py-1 px-2 text-right font-mono text-[13px] font-black '+(run<0?"text-red-600":"text-green-600")+'">'+fmt(run)+'</td>';
-    if(STATE.showCols.action){
-      rows += '<td class="py-1 px-2">';
-      if(!locked){
-        rows += '<button data-mod="'+e.id+'" class="mr-1 px-1.5 py-0.5 rounded text-[10px] font-bold border bg-yellow-50 text-yellow-700 border-yellow-200">Mod</button>';
-        rows += '<button data-del="'+e.id+'" class="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-red-50 text-red-600 border-red-200">Del</button>';
-      } else rows += '<span class="text-[10px] text-gray-400">Locked</span>';
-      rows += '</td>';
     }
-    rows += '</tr>';
-  }
-  if(!rows) rows = '<tr><td colspan="7" class="p-6 text-center opacity-60">No entries</td></tr>';
+    newLedgers.push({ id: "open_" + t, pairId: "opening_" + t, date: today(), time: nowT(), partyId: selectedParty, counterPartyId: "", amount: balance, remark: "Opening", createdAt: t + 5, openingLocked: true, carryForward: true });
 
-  var counterOpts = "";
-  for(var k=0;k<STATE.parties.length;k++){
-    var p = STATE.parties[k];
-    if(p.id===STATE.selectedParty) continue;
-    if(p.status!=="Active") continue;
-    counterOpts += '<option value="'+esc(p.id)+'"'+(p.id===STATE.counter?" selected":"")+'>'+esc(p.id)+'</option>';
+    setFinals(newFinals);
+    setLedgers(newLedgers);
+    setConfirmFinal(false);
+    saveNow({ ledgers: newLedgers, finals: newFinals });
+    notify(selectedParty + " Finalized");
   }
 
-  var comp = STATE.companyName ? '<div class="flex-1 text-center"><div class="text-[16px] font-black tracking-tight text-cyan-700">'+esc(STATE.companyName)+'</div></div>' : '<div class="flex-1"></div>';
-
-  var colOpts = "";
-  var colKeys = ["date","counter","remark","debit","credit","balance","action"];
-  for(var c=0;c<colKeys.length;c++){
-    var key = colKeys[c];
-    var v = STATE.showCols[key];
-    colOpts += '<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 cursor-pointer text-[13px]">'+
-      '<input type="checkbox" data-col="'+key+'"'+(v?" checked":"")+'><span class="'+(v?"":"opacity-40 line-through")+'">'+key+'</span></label>';
+  function addParty() {
+    var name = newPartyName.trim().toUpperCase();
+    if (!name) { notify("Enter name"); return; }
+    for (var i = 0; i < parties.length; i++) if (parties[i].id === name) { notify("Exists"); return; }
+    requirePin(function() { setPartyConfirm({ name: name }); }, "Create Party " + name);
   }
 
-  var deactive = STATE.parties.find(function(p){ return p.id===STATE.selectedParty && p.status!=="Active"; });
-
-  return ''+
-  '<div class="p-2 h-[calc(100vh-64px)] flex flex-col">'+
-    '<div class="rounded-xl border p-3 flex-1 flex flex-col min-h-0 '+T.card+'">'+
-      '<div class="flex items-center justify-between mb-3 flex-wrap gap-2">'+
-        '<div class="flex items-center gap-3 shrink-0"><div class="font-black text-[15px]">'+STATE.selectedParty+' LEDGER</div>'+(deactive?'<span class="ml-2 px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 text-[10px] font-black">DEACTIVE</span>':'')+'</div>'+
-        comp +
-        '<div class="flex gap-2 items-center shrink-0">'+
-          '<button id="btn-fr" class="h-8 px-3 rounded-lg border text-[12px] font-black" style="background:#e0f2fe;border-color:#7dd3fc;color:#0369a1">FR</button>'+
-          '<input id="search-ledger" value="'+esc(STATE.search)+'" placeholder="Search..." class="h-8 w-[200px] rounded-lg border px-3 text-[12px] '+T.input+'">'+
-          '<button id="btn-cols" class="h-8 px-3 rounded-lg border text-[12px] font-bold">Columns</button>'+
-        '</div>'+
-      '</div>'+
-      (STATE.showColDrop ? '<div class="absolute right-4 top-24 w-56 rounded-xl border shadow-2xl z-40 p-2 '+T.card+'">'+colOpts+'</div>' : '')+
-      '<div class="rounded-lg border overflow-auto flex-1 min-h-0">'+
-        '<table class="w-full border-collapse" style="font-size:13px">'+
-          '<thead class="sticky top-0 '+T.tblHeader+'"><tr>'+
-            (STATE.showCols.date?'<th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Date</th>':'')+
-            (STATE.showCols.counter?'<th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Counter</th>':'')+
-            (STATE.showCols.remark?'<th class="text-left py-1.5 px-2.5 text-[11px] font-black uppercase">Remark</th>':'')+
-            (STATE.showCols.debit?'<th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Debit</th>':'')+
-            (STATE.showCols.credit?'<th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Credit</th>':'')+
-            (STATE.showCols.balance?'<th class="text-right py-1.5 px-2 text-[11px] font-black uppercase">Balance</th>':'')+
-            (STATE.showCols.action?'<th class="text-left py-1.5 px-2 text-[11px] font-black uppercase">Action</th>':'')+
-          '</tr></thead>'+
-          '<tbody>'+rows+'</tbody>'+
-        '</table>'+
-      '</div>'+
-      '<div class="mt-3 pt-3 border-t flex gap-2 items-end">'+
-        '<div style="flex:0 0 22%"><label class="text-[11px] font-black uppercase opacity-70">Counter</label>'+
-        '<select id="counter-select" class="w-full h-10 rounded-lg border px-3 text-[13px] font-bold '+T.input+'">'+counterOpts+'</select></div>'+
-        '<div style="flex:0 0 22%"><label class="text-[11px] font-black uppercase opacity-70">Amount</label>'+
-        '<input id="amount-input" placeholder="100/200" class="w-full h-10 rounded-lg border px-3 text-[15px] font-black '+T.input+'"></div>'+
-        '<div style="flex:1"><label class="text-[11px] font-black uppercase opacity-70">Remark</label>'+
-        '<input id="remark-input" placeholder="Pay..." class="w-full h-10 rounded-lg border px-3 text-[13px] '+T.input+'"></div>'+
-        '<button id="btn-add" class="h-10 px-4 rounded-lg font-black text-[14px] '+T.addBtn+'">ADD</button>'+
-      '</div>'+
-    '</div>'+
-  '</div>';
-}
-
-/* ========== PARTY PAGE ========== */
-function renderParty(){
-  var T = THEMES[STATE.theme] || THEMES.ocean;
-  var rows = "";
-  for(var i=0;i<STATE.parties.length;i++){
-    var p = STATE.parties[i];
-    var bal = 0;
-    for(var j=0;j<STATE.ledgers.length;j++) if(STATE.ledgers[j].partyId===p.id) bal += STATE.ledgers[j].amount;
-    var active = p.status==="Active";
-    var frCount = 0;
-    for(var f=0;f<STATE.finals.length;f++) if(STATE.finals[f].partyId===p.id) frCount++;
-    rows += '<div class="py-3 flex items-center justify-between border-t">'+
-      '<div class="flex items-center gap-3">'+
-        '<div class="w-10 h-10 rounded-full flex items-center justify-center font-black '+T.logo+'">'+esc(p.id[0])+'</div>'+
-        '<div>'+
-          '<div class="flex items-center gap-2">'+
-            '<span class="font-black text-[14px]">'+esc(p.name)+'</span>'+
-            '<span class="px-2 py-0.5 rounded-full text-[10px] font-black border '+(active?"bg-green-100 text-green-800":"bg-red-100 text-red-800")+'">'+p.status+'</span>'+
-            (frCount>0?'<span class="px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200 text-[10px] font-black">FR</span>':'')+
-          '</div>'+
-          '<div class="text-[13px] font-bold font-mono '+(bal<0?"text-red-600":"text-green-600")+'">'+fmt(bal)+'</div>'+
-        '</div>'+
-      '</div>'+
-      '<div class="flex gap-2">'+
-        '<button data-toggle="'+esc(p.id)+'" class="h-9 px-3 rounded-full text-[12px] font-black border '+(active?"bg-green-100 text-green-800":"bg-red-100 text-red-800")+'">'+(active?"Active":"Deactive")+'</button>'+
-        '<button data-edit-party="'+esc(p.id)+'" class="h-9 px-3 rounded-full text-[12px] font-black border '+T.exportBtnAlt+'">Modify</button>'+
-      '</div>'+
-    '</div>';
+  function confirmAddParty() {
+    var name = partyConfirm.name;
+    var newParties = parties.concat([{ id: name, name: name, status: "Active" }]);
+    var newHistory = [{ id: "h_" + Date.now(), dateDisplay: dmy(today()), timeDisplay: nowT(), action: "Created", partyId: name, oldVal: "-", newVal: name, remark: "Created" }].concat(history);
+    setParties(newParties);
+    setHistory(newHistory);
+    setNewPartyName("");
+    setPartyConfirm(null);
+    saveNow({ parties: newParties, history: newHistory });
+    notify("Party created");
   }
-  var pin = STATE.pin ? ' 🔒' : '';
-  return '<div class="p-4 max-w-5xl mx-auto w-full flex flex-col gap-4">'+
-    '<div class="rounded-xl border p-6 '+T.card+'">'+
-      '<div class="font-black text-[15px] mb-4">PARTY MANAGER'+pin+'</div>'+
-      '<div class="flex gap-3">'+
-        '<input id="new-party-name" placeholder="AA BB" class="flex-1 h-14 rounded-xl border px-4 text-[15px] font-bold '+T.input+'">'+
-        '<button id="btn-add-party" class="h-14 w-24 rounded-xl text-[14px] font-black '+T.addBtn+'">Add</button>'+
-      '</div>'+
-    '</div>'+
-    '<div class="rounded-xl border p-6 '+T.card+'">'+
-      '<div class="flex justify-between mb-4">'+
-        '<div class="font-black text-[14px]">ALL PARTIES</div>'+
-        '<button id="btn-history" class="h-9 px-4 rounded-full text-[12px] font-black border '+T.exportBtnAlt+'">History</button>'+
-      '</div>'+
-      rows+
-    '</div>'+
-  '</div>';
-}
 
-/* ========== FINAL PAGE ========== */
-function renderFinal(){
-  var T = THEMES[STATE.theme] || THEMES.ocean;
-  var popts = '<option value="">Select Party...</option>';
-  for(var i=0;i<STATE.parties.length;i++) popts += '<option value="'+esc(STATE.parties[i].id)+'"'+(STATE.parties[i].id===STATE.finalFilter?" selected":"")+'>'+esc(STATE.parties[i].id)+'</option>';
-  var rows = "";
-  if(STATE.finalFilter){
-    var filtered = STATE.finals.filter(function(g){ return g.partyId===STATE.finalFilter; });
-    filtered.sort(function(a,b){ return (a.createdAt||0)-(b.createdAt||0); });
+  function toggleActive(p) {
+    requirePin(function() { setToggleConfirm({ party: p, next: p.status === "Active" ? "Deactive" : "Active" }); }, "Toggle " + p.id);
+  }
+
+  function confirmToggle() {
+    var p = toggleConfirm.party;
+    var next = toggleConfirm.next;
+    var newParties = [];
+    for (var i = 0; i < parties.length; i++) {
+      if (parties[i].id === p.id) newParties.push({ id: p.id, name: p.name, status: next });
+      else newParties.push(parties[i]);
+    }
+    var newHistory = [{ id: "h_" + Date.now(), dateDisplay: dmy(today()), timeDisplay: nowT(), action: next, partyId: p.id, oldVal: p.status, newVal: next, remark: next }].concat(history);
+    setParties(newParties);
+    setHistory(newHistory);
+    setToggleConfirm(null);
+    saveNow({ parties: newParties, history: newHistory });
+    notify(p.id + " " + next);
+  }
+
+  function openEditParty(p) {
+    requirePin(function() { setEditParty(p); setEditPartyName(p.name); }, "Modify Party");
+  }
+
+  function saveEditParty() {
+    var name = editPartyName.trim().toUpperCase();
+    if (!name || name === editParty.id) { setEditParty(null); return; }
+    for (var i = 0; i < parties.length; i++) if (parties[i].id === name) { notify("Exists"); return; }
+
+    var newParties = [];
+    for (var j = 0; j < parties.length; j++) {
+      if (parties[j].id === editParty.id) newParties.push({ id: name, name: name, status: parties[j].status });
+      else newParties.push(parties[j]);
+    }
+    var newLedgers = [];
+    for (var k = 0; k < ledgers.length; k++) {
+      var l = ledgers[k];
+      var pid = l.partyId === editParty.id ? name : l.partyId;
+      var cid = l.counterPartyId === editParty.id ? name : l.counterPartyId;
+      var copy = {};
+      for (var kk in l) copy[kk] = l[kk];
+      copy.partyId = pid;
+      copy.counterPartyId = cid;
+      newLedgers.push(copy);
+    }
+    var newFinals = [];
+    for (var m = 0; m < finals.length; m++) {
+      var g = finals[m];
+      if (g.partyId === editParty.id) {
+        var copy2 = {};
+        for (var kk2 in g) copy2[kk2] = g[kk2];
+        copy2.partyId = name;
+        newFinals.push(copy2);
+      } else newFinals.push(g);
+    }
+    setParties(newParties);
+    setLedgers(newLedgers);
+    setFinals(newFinals);
+    if (selectedParty === editParty.id) setSelectedParty(name);
+    if (counter === editParty.id) setCounter(name);
+    setEditParty(null);
+    saveNow({ parties: newParties, ledgers: newLedgers, finals: newFinals });
+    notify("Renamed");
+  }
+
+  function downloadBlob(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { a.remove(); URL.revokeObjectURL(url); }, 1500);
+  }
+
+  function exportCSV() {
+    var csv = "Date,Time,Counter,Amount,Remark,Debit,Credit,Balance\n";
+    for (var i = 0; i < filteredEntries.length; i++) {
+      var e = filteredEntries[i];
+      var bal = balMap.map.get(e.id) || 0;
+      csv += e.date + "," + (e.time || "") + "," + (e.counterPartyId || "-") + ',"' + (e.remark || "").replace(/"/g, '""') + '",' + e.amount + "," + (e.amount < 0 ? Math.abs(e.amount) : "") + "," + (e.amount > 0 ? e.amount : "") + "," + bal + "\n";
+    }
+    downloadBlob(new Blob([csv], { type: "text/csv" }), "ledger_" + selectedParty + ".csv");
+    notify("Exported");
+  }
+
+  function exportFRExcel() {
+    var csv = "Date,Counter,Remark,Debit,Credit,Balance\n";
+    for (var i = 0; i < frRows.length; i++) {
+      var r = frRows[i];
+      csv += r.date + "," + (r.counterPartyId || "-") + ',"' + (r.remark || "").replace(/"/g, '""') + '",' + r._debit + "," + r._credit + "," + r._bal + "\n";
+    }
+    downloadBlob(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }), "FR_" + selectedParty + ".csv");
+    notify("Exported");
+  }
+
+  function exportHistory() {
+    var csv = "Date,Time,Action,Party,Old,New,Remark\n";
+    for (var i = 0; i < history.length; i++) {
+      var x = history[i];
+      csv += x.dateDisplay + "," + x.timeDisplay + "," + x.action + "," + x.partyId + "," + x.oldVal + "," + x.newVal + ',"' + (x.remark || "").replace(/"/g, '""') + '"\n';
+    }
+    downloadBlob(new Blob([csv], { type: "text/csv" }), "history.csv");
+  }
+
+  function backupJSON() {
+    requirePin(function() {
+      var data = { parties: parties, ledgers: ledgers, finals: finals, pin: pin, companyName: companyName, history: history, exportedAt: new Date().toISOString() };
+      downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), "backup_" + today() + ".json");
+      var now = Date.now();
+      setLastBackup(now);
+      saveNow({ lastBackupTime: now });
+      notify("Backup exported");
+    }, "Backup");
+  }
+
+  function triggerRestore() { if (fileInputRef.current) fileInputRef.current.click(); }
+
+  function doRestore(e) {
+    var f = e.target.files[0];
+    if (!f) return;
+    e.target.value = "";
+    requirePin(function() {
+      var r = new FileReader();
+      r.onload = function() {
+        try {
+          var d = JSON.parse(r.result);
+          if (d.parties) setParties(d.parties);
+          if (d.ledgers) setLedgers(d.ledgers);
+          if (d.finals) setFinals(d.finals);
+          if (d.pin) setPin(d.pin);
+          if (d.companyName !== undefined) { setCompanyName(d.companyName || ""); setCompanyNameInput(d.companyName || ""); }
+          if (d.history) setHistory(d.history);
+          notify("Restore OK");
+        } catch(ex) { notify("Invalid file"); }
+      };
+      r.readAsText(f);
+    }, "Restore");
+  }
+
+  function removePin() {
+    requirePin(function() {
+      if (confirm("Remove PIN?")) {
+        setPin("");
+        saveNow({ pin: "" });
+        notify("PIN removed");
+      }
+    }, "Remove PIN");
+  }
+
+  function saveCompanyName() {
+    var n = companyNameInput.trim();
+    if (n === companyName) { notify("No change"); return; }
+    requirePin(function() { setCompanyName(n); saveNow({ companyName: n }); notify("Saved"); }, "Company Name");
+  }
+
+  function clearCompanyName() {
+    requirePin(function() { setCompanyName(""); setCompanyNameInput(""); saveNow({ companyName: "" }); notify("Cleared"); }, "Clear Company");
+  }
+
+  function changeTheme(nt) { setTheme(nt); saveNow({ theme: nt }); }
+
+  var partyEntries = useMemo(function() {
+    var arr = [];
+    for (var i = 0; i < ledgers.length; i++) if (ledgers[i].partyId === selectedParty) arr.push(ledgers[i]);
+    arr.sort(function(a, b) { return a.createdAt - b.createdAt; });
+    return arr;
+  }, [ledgers, selectedParty]);
+
+  var balMap = useMemo(function() {
+    var m = new Map();
     var run = 0;
-    for(var j=0;j<filtered.length;j++){
+    for (var i = 0; i < partyEntries.length; i++) { run += partyEntries[i].amount; m.set(partyEntries[i].id, run); }
+    return { map: m, total: run };
+  }, [partyEntries]);
+
+  var allPartyBalances = useMemo(function() {
+    var m = {};
+    for (var i = 0; i < parties.length; i++) {
+      var p = parties[i];
+      var s = 0;
+      for (var j = 0; j < ledgers.length; j++) if (ledgers[j].partyId === p.id) s += ledgers[j].amount;
+      m[p.id] = s;
+    }
+    return m;
+  }, [parties, ledgers]);
+
+  var filteredEntries = useMemo(function() {
+    if (!search.trim()) return partyEntries;
+    var s = search.toLowerCase();
+    var out = [];
+    for (var i = 0; i < partyEntries.length; i++) {
+      var e = partyEntries[i];
+      var str = (dmy(e.date) + " " + (e.counterPartyId || "") + " " + (e.remark || "") + " " + e.amount).toLowerCase();
+      if (str.indexOf(s) !== -1) out.push(e);
+    }
+    return out;
+  }, [partyEntries, search]);
+
+  var trial = useMemo(function() {
+    var src = ledgers;
+    if (filterFrom) { var f1 = []; for (var i = 0; i < src.length; i++) if (src[i].date >= filterFrom) f1.push(src[i]); src = f1; }
+    if (filterTo) { var f2 = []; for (var j = 0; j < src.length; j++) if (src[j].date <= filterTo) f2.push(src[j]); src = f2; }
+    var dp = [];
+    var cp = [];
+    for (var k = 0; k < parties.length; k++) {
+      var p = parties[k];
+      if (p.status !== "Active") continue;
+      var bal = 0;
+      for (var l = 0; l < src.length; l++) if (src[l].partyId === p.id) bal += src[l].amount;
+      if (bal < 0) dp.push({ party: p, bal: bal });
+      else if (bal > 0) cp.push({ party: p, bal: bal });
+    }
+    var debit = 0;
+    var credit = 0;
+    for (var m = 0; m < dp.length; m++) debit += Math.abs(dp[m].bal);
+    for (var n = 0; n < cp.length; n++) credit += cp[n].bal;
+    var diff = credit - debit;
+    var status = "BALANCED";
+    if (diff > 0) status = "CREDIT EXCESS " + Math.abs(diff).toLocaleString("en-IN");
+    else if (diff < 0) status = "DEBIT EXCESS " + Math.abs(diff).toLocaleString("en-IN");
+    return { debitParties: dp, creditParties: cp, debit: debit, credit: credit, diff: diff, status: status };
+  }, [ledgers, parties, filterFrom, filterTo]);
+
+  function buildFRRows(partyFilter, searchStr) {
+    if (!finals.length || !partyFilter) return [];
+    var filtered = [];
+    for (var i = 0; i < finals.length; i++) if (finals[i].partyId === partyFilter) filtered.push(finals[i]);
+    filtered.sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    var run = 0;
+    var out = [];
+    for (var j = 0; j < filtered.length; j++) {
       var g = filtered[j];
-      for(var m=0;m<g.entries.length;m++){
-        var e = g.entries[m];
-        var isCF = e.carryForward===true;
-        if(!isCF) run += e.amount;
-        var cls = "border-t"+(isCF?" bg-amber-50":"");
-        rows += '<tr class="'+cls+'">'+
-          '<td class="py-1 px-2.5 font-mono text-[12px]">'+dmy(e.date)+'</td>'+
-          '<td class="py-1 px-2.5 font-black text-[12px]"><span class="px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-800 border border-slate-300 text-[10px]">'+esc(STATE.finalFilter)+'</span></td>'+
-          '<td class="py-1 px-2.5 font-bold">'+esc(isCF?"B/F":(e.counterPartyId||"-"))+'</td>'+
-          '<td class="py-1 px-2.5">'+esc(isCF?"Opening":(e.remark||"-"))+'</td>'+
-          '<td class="py-1 px-2 text-right font-mono">'+((!isCF&&e.amount<0)?fmtAbs(e.amount):"-")+'</td>'+
-          '<td class="py-1 px-2 text-right font-mono">'+((!isCF&&e.amount>0)?fmt(e.amount):"-")+'</td>'+
-          '<td class="py-1 px-2 text-right font-mono font-black '+(run<0?"text-red-600":"text-green-600")+'">'+fmt(run)+'</td>'+
-        '</tr>';
+      for (var k = 0; k < g.entries.length; k++) {
+        var e = g.entries[k];
+        var isCF = e.carryForward === true;
+        if (!isCF) run += e.amount;
+        out.push({ id: e.id, partyId: g.partyId, date: e.date, counterPartyId: isCF ? "B/F" : e.counterPartyId, remark: isCF ? "Opening" : e.remark, _debit: (!isCF && e.amount < 0) ? Math.abs(e.amount).toString() : "-", _credit: (!isCF && e.amount > 0) ? e.amount.toString() : "-", _bal: run, isClosing: false, isOpeningEntry: isCF });
       }
-      rows += '<tr class="border-t bg-cyan-300 font-bold">'+
-        '<td class="py-1 px-2.5">'+dmy(g.closedAt)+'</td>'+
-        '<td colspan="5" class="py-1 px-2.5 text-center">FINAL CLOSING - '+esc(STATE.finalFilter)+'</td>'+
-        '<td class="py-1 px-2 text-right font-mono">'+fmt(run)+'</td>'+
-      '</tr>';
+      out.push({ id: "closing_" + g.id, partyId: g.partyId, date: g.closedAt, counterPartyId: "-", remark: "FINAL CLOSING • " + g.partyId, _debit: "-", _credit: "-", _bal: run, isClosing: true });
     }
-  }
-  if(!rows) rows = '<tr><td colspan="7" class="p-8 text-center opacity-60">Select a party</td></tr>';
-
-  return '<div class="p-4"><div class="max-w-[1150px] mx-auto">'+
-    '<div class="flex items-center gap-2 mb-3 flex-wrap">'+
-      '<div class="font-black text-[15px]">FINAL REPORT</div>'+
-      '<label class="text-[12px] font-black uppercase opacity-70">Party:</label>'+
-      '<select id="final-filter" class="h-9 rounded-lg border px-3 text-[13px] font-bold '+T.input+'">'+popts+'</select>'+
-    '</div>'+
-    '<div class="rounded-lg border overflow-auto bg-white" style="max-height:calc(100vh-260px)">'+
-      '<table class="w-full"><thead class="sticky top-0 '+T.tblHeader+'"><tr>'+
-        '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Date</th>'+
-        '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Party</th>'+
-        '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Counter</th>'+
-        '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Remark</th>'+
-        '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Debit</th>'+
-        '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Credit</th>'+
-        '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Balance</th>'+
-      '</tr></thead><tbody>'+rows+'</tbody></table>'+
-    '</div>'+
-  '</div></div>';
-}
-
-/* ========== TRIAL PAGE ========== */
-function renderTrial(){
-  var T = THEMES[STATE.theme] || THEMES.ocean;
-  var dp = [], cp = [], dt = 0, ct = 0;
-  for(var i=0;i<STATE.parties.length;i++){
-    var p = STATE.parties[i];
-    if(p.status!=="Active") continue;
-    var bal = 0;
-    for(var j=0;j<STATE.ledgers.length;j++) if(STATE.ledgers[j].partyId===p.id) bal += STATE.ledgers[j].amount;
-    if(bal<0){ dp.push({party:p,bal:bal}); dt += Math.abs(bal); }
-    else if(bal>0){ cp.push({party:p,bal:bal}); ct += bal; }
-  }
-  var diff = ct - dt;
-  var statusText = diff===0 ? "BALANCED" : (diff>0 ? "CREDIT EXCESS "+Math.abs(diff).toLocaleString("en-IN") : "DEBIT EXCESS "+Math.abs(diff).toLocaleString("en-IN"));
-  var dpHtml = dp.length===0 ? '<div class="text-center py-8 opacity-60 text-[13px]">No debit parties</div>' :
-    dp.map(function(x){ return '<div class="flex justify-between items-center h-12 px-4 rounded-xl border border-red-100"><span class="font-black text-[14px]">'+esc(x.party.id)+'</span><span class="font-mono font-black text-red-600 text-[14px]">'+fmt(x.bal)+'</span></div>'; }).join("");
-  var cpHtml = cp.length===0 ? '<div class="text-center py-8 opacity-60 text-[13px]">No credit parties</div>' :
-    cp.map(function(x){ return '<div class="flex justify-between items-center h-12 px-4 rounded-xl border border-green-100"><span class="font-black text-[14px]">'+esc(x.party.id)+'</span><span class="font-mono font-black text-green-600 text-[14px]">'+fmt(x.bal)+'</span></div>'; }).join("");
-
-  return '<div class="p-4 max-w-6xl mx-auto w-full flex flex-col gap-4">'+
-    '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">'+
-      '<div class="rounded-xl border p-6 bg-red-50 border-red-200"><div class="text-[12px] font-black text-red-800 uppercase">TOTAL DEBIT</div><div class="text-[22px] font-black text-red-600">'+fmtAbs(dt)+'</div><div class="text-[12px] font-bold text-red-600">'+dp.length+' parties</div></div>'+
-      '<div class="rounded-xl border p-6 bg-green-50 border-green-200"><div class="text-[12px] font-black text-green-800 uppercase">TOTAL CREDIT</div><div class="text-[22px] font-black text-green-600">'+fmt(ct)+'</div><div class="text-[12px] font-bold text-green-600">'+cp.length+' parties</div></div>'+
-      '<div class="rounded-xl border p-6 bg-cyan-50 border-cyan-200"><div class="text-[12px] font-black text-cyan-800 uppercase">DIFFERENCE</div><div class="text-[22px] font-black text-cyan-700">'+fmtAbs(diff)+'</div></div>'+
-      '<div class="rounded-xl border p-6 bg-gray-900 text-white border-gray-900"><div class="text-[12px] font-black opacity-70 uppercase">STATUS</div><div class="text-[18px] font-black">'+statusText+'</div></div>'+
-    '</div>'+
-    '<div class="grid md:grid-cols-2 gap-4">'+
-      '<div class="rounded-xl border overflow-hidden '+T.card+'"><div class="p-4 font-black text-[14px] border-b uppercase">DEBIT SECTION</div><div class="p-4 space-y-2">'+dpHtml+'</div></div>'+
-      '<div class="rounded-xl border overflow-hidden '+T.card+'"><div class="p-4 font-black text-[14px] border-b uppercase">CREDIT SECTION</div><div class="p-4 space-y-2">'+cpHtml+'</div></div>'+
-    '</div>'+
-  '</div>';
-}
-
-/* ========== PROFILE PAGE ========== */
-function renderProfile(){
-  var T = THEMES[STATE.theme] || THEMES.ocean;
-  var user = esc(STATE.profile.full_name || STATE.profile.username);
-  var initial = (user||"?").charAt(0).toUpperCase();
-  var pinSec = "";
-  if(STATE.pin){
-    pinSec = '<div class="flex gap-3 items-center flex-wrap"><span class="px-4 py-2 rounded-lg border bg-green-50 text-green-800 text-[13px] font-black tracking-widest">PIN: '+"●".repeat(STATE.pin.length)+'</span>'+
-      '<button id="btn-remove-pin" class="h-10 px-4 rounded-lg bg-red-100 text-red-700 border border-red-300 text-[12px] font-black">Remove PIN</button></div>';
-  } else {
-    pinSec = '<div class="flex flex-col gap-3"><div class="text-[12px] font-semibold opacity-70">Set a PIN to protect: FINAL, Party, Company Name, Backup</div>'+
-      '<div class="flex gap-3 items-center flex-wrap"><input id="pin-input" type="password" maxlength="6" placeholder="Enter 4-6 digit PIN" class="h-12 rounded-lg border px-4 text-[14px] font-bold w-[220px] tracking-widest '+T.input+'">'+
-      '<button id="btn-set-pin" class="h-12 px-6 rounded-lg text-[13px] font-black '+T.addBtn+'">Set PIN</button></div></div>';
-  }
-  var themeBtns = "";
-  for(var k in THEMES){
-    var t = THEMES[k];
-    themeBtns += '<button data-theme="'+k+'" class="h-16 rounded-xl border flex items-center justify-between px-5 '+t.card+(STATE.theme===k?" ring-2 ring-cyan-500":"")+'">'+
-      '<span class="font-black text-[14px]">'+t.label+'</span>'+
-      (STATE.theme===k?'<span class="text-[11px] font-black px-2 py-0.5 rounded-full bg-black text-white">ACTIVE</span>':'')+'</button>';
-  }
-  return '<div class="p-4 max-w-2xl mx-auto w-full flex flex-col gap-4">'+
-    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">MY ACCOUNT</div>'+
-      '<div class="flex items-center gap-4">'+
-        '<div class="w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white flex items-center justify-center text-[24px] font-black">'+initial+'</div>'+
-        '<div><div class="text-[18px] font-black">'+user+'</div><div class="text-[12px] font-bold text-slate-500 font-mono">@'+esc(STATE.profile.username)+'</div></div>'+
-      '</div></div>'+
-    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">CHANGE PASSWORD</div>'+
-      '<div class="space-y-3">'+
-        '<input id="cur-pwd" type="password" placeholder="Current password" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold '+T.input+'">'+
-        '<input id="new-pwd" type="password" placeholder="New password (min 6)" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold '+T.input+'">'+
-        '<input id="cf-pwd" type="password" placeholder="Confirm new password" class="w-full h-12 rounded-lg border px-4 text-[14px] font-bold '+T.input+'">'+
-        '<button id="btn-change-pwd" class="w-full h-12 rounded-lg '+T.addBtn+' font-black">Change Password</button>'+
-        '<div id="pwd-msg" class="text-[12px] font-bold hidden"></div>'+
-      '</div></div>'+
-    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">COMPANY NAME</div>'+
-      '<div class="flex gap-3 flex-wrap">'+
-        '<input id="company-name-input" value="'+esc(STATE.companyName)+'" placeholder="Company name" class="flex-1 min-w-[240px] h-12 rounded-lg border px-4 text-[14px] font-bold '+T.input+'">'+
-        '<button id="btn-save-company" class="h-12 px-6 rounded-lg '+T.addBtn+' font-black text-[13px]">Save</button>'+
-      '</div></div>'+
-    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">THEME</div>'+
-      '<div class="grid grid-cols-2 gap-4">'+themeBtns+'</div></div>'+
-    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">PIN SECURITY</div>'+pinSec+'</div>'+
-    '<div class="rounded-xl border p-6 '+T.card+'"><div class="font-black text-[15px] mb-4 uppercase">BACKUP</div>'+
-      '<div class="flex gap-3 flex-wrap">'+
-        '<button id="btn-backup" class="h-12 px-6 rounded-lg border '+T.exportBtnAlt+' font-black text-[13px]">Backup JSON</button>'+
-        '<button id="btn-restore" class="h-12 px-6 rounded-lg border '+T.exportBtnAlt+' font-black text-[13px]">Restore</button>'+
-        '<input id="restore-file" type="file" accept=".json" class="hidden">'+
-      '</div></div>'+
-  '</div>';
-}
-
-/* ========== BIND MAIN ========== */
-function bindMain(){
-  var cs = $("counter-select");
-  if(cs){
-    cs.onchange = function(){ STATE.counter = this.value; saveNow(); };
-    cs.onkeydown = function(e){ if(e.key==="Enter"){ e.preventDefault(); var a=$("amount-input"); if(a) a.focus(); } };
-  }
-  var ai = $("amount-input");
-  if(ai){
-    ai.oninput = function(){ if(!/^[+\-\d.\s\/]*$/.test(this.value)) this.value = this.value.replace(/[^+\-\d.\s\/]/g,""); };
-    ai.onkeydown = function(e){ if(e.key==="Enter"){ e.preventDefault(); var r=$("remark-input"); if(r) r.focus(); } };
-  }
-  var ri = $("remark-input");
-  if(ri){
-    ri.onkeydown = function(e){ if(e.key==="Enter"){ e.preventDefault(); doAddEntry(); } };
-  }
-  var ba = $("btn-add"); if(ba) ba.onclick = doAddEntry;
-  var sl = $("search-ledger");
-  if(sl){
-    sl.oninput = function(){ STATE.search = this.value; var save = this.value; renderMain(); var x=$("search-ledger"); if(x){ x.value=save; x.focus(); } };
-  }
-  var bfr = $("btn-fr"); if(bfr) bfr.onclick = function(){ STATE.frOpen = true; showFRModal(); };
-  var bc = $("btn-cols");
-  if(bc) bc.onclick = function(){ STATE.showColDrop = !STATE.showColDrop; renderMain(); };
-
-  var modBtns = document.querySelectorAll("[data-mod]");
-  for(var i=0;i<modBtns.length;i++) modBtns[i].onclick = function(){ openModify(this.getAttribute("data-mod")); };
-  var delBtns = document.querySelectorAll("[data-del]");
-  for(var j=0;j<delBtns.length;j++) delBtns[j].onclick = function(){ openDelete(this.getAttribute("data-del")); };
-
-  var bap = $("btn-add-party");
-  if(bap) bap.onclick = addParty;
-  var bh = $("btn-history");
-  if(bh) bh.onclick = function(){ STATE.historyOpen = true; showHistoryModal(); };
-
-  var togs = document.querySelectorAll("[data-toggle]");
-  for(var k=0;k<togs.length;k++) togs[k].onclick = function(){ toggleActive(this.getAttribute("data-toggle")); };
-  var edits = document.querySelectorAll("[data-edit-party]");
-  for(var m=0;m<edits.length;m++) edits[m].onclick = function(){ editParty(this.getAttribute("data-edit-party")); };
-
-  var ff = $("final-filter");
-  if(ff) ff.onchange = function(){ STATE.finalFilter = this.value; renderMain(); };
-
-  var bcp = $("btn-change-pwd");
-  if(bcp) bcp.onclick = changePassword;
-  var bsc = $("btn-save-company");
-  if(bsc) bsc.onclick = saveCompanyName;
-  var bsp = $("btn-set-pin");
-  if(bsp) bsp.onclick = setPin;
-  var brp = $("btn-remove-pin");
-  if(brp) brp.onclick = function(){ requirePin(function(){ STATE.pin=""; saveNow(); alert("PIN removed"); renderMain(); }, "Remove PIN"); };
-  var bb = $("btn-backup");
-  if(bb) bb.onclick = function(){ requirePin(backupJSON, "Backup"); };
-  var br = $("btn-restore");
-  if(br) br.onclick = function(){ $("restore-file").click(); };
-  var rf = $("restore-file");
-  if(rf) rf.onchange = restoreFile;
-
-  var themeBtns = document.querySelectorAll("[data-theme]");
-  for(var n=0;n<themeBtns.length;n++){
-    themeBtns[n].onclick = function(){
-      STATE.theme = this.getAttribute("data-theme");
-      saveNow();
-      renderDashboard();
-    };
-  }
-  var colChecks = document.querySelectorAll("[data-col]");
-  for(var c=0;c<colChecks.length;c++){
-    colChecks[c].onchange = function(){
-      var key = this.getAttribute("data-col");
-      STATE.showCols[key] = !STATE.showCols[key];
-      renderMain();
-    };
-  }
-}
-
-/* ========== ACTIONS ========== */
-function doAddEntry(){
-  var a = $("amount-input"), r = $("remark-input");
-  if(!a || !r) return;
-  var parts = a.value.split("/");
-  var nums = [];
-  for(var i=0;i<parts.length;i++){ var n = parseFloat(parts[i].trim()); if(!isNaN(n) && n!==0) nums.push(n); }
-  if(nums.length===0) return alert("Enter amount");
-  if(STATE.selectedParty === STATE.counter) return alert("Same party not allowed");
-  var cp = null;
-  for(var x=0;x<STATE.parties.length;x++) if(STATE.parties[x].id===STATE.counter) cp = STATE.parties[x];
-  if(!cp || cp.status!=="Active") return alert("Counter inactive");
-  var t = Date.now(), date = today(), time = nowT();
-  for(var j=0;j<nums.length;j++){
-    var nn = nums[j];
-    var pid = "pair_"+t+"_"+j;
-    STATE.ledgers.push({ id:"e_"+t+"_"+j+"_a", pairId:pid, date:date, time:time, partyId:STATE.selectedParty, counterPartyId:STATE.counter, amount:nn, remark:r.value.trim(), createdAt:t+j*2 });
-    STATE.ledgers.push({ id:"e_"+t+"_"+j+"_b", pairId:pid, date:date, time:time, partyId:STATE.counter, counterPartyId:STATE.selectedParty, amount:-nn, remark:r.value.trim(), createdAt:t+j*2+1 });
-  }
-  a.value = ""; r.value = "";
-  saveNow();
-  renderMain();
-  setTimeout(function(){ var x=$("amount-input"); if(x) x.focus(); }, 50);
-}
-
-function openModify(id){
-  var e = null;
-  for(var i=0;i<STATE.ledgers.length;i++) if(STATE.ledgers[i].id===id) e = STATE.ledgers[i];
-  if(!e) return;
-  if(e.openingLocked || ((e.remark||"").toLowerCase()==="opening") || e.finalLocked) return alert("Locked");
-  var newAmt = prompt("New amount:", String(e.amount));
-  if(newAmt===null) return;
-  var amt = parseFloat(newAmt);
-  if(isNaN(amt) || amt===0) return alert("Invalid amount");
-  var newRem = prompt("New remark:", e.remark || "");
-  if(newRem===null) return;
-  for(var j=0;j<STATE.ledgers.length;j++){
-    var x = STATE.ledgers[j];
-    if(x.pairId!==e.pairId) continue;
-    if(x.openingLocked || ((x.remark||"").toLowerCase()==="opening") || x.finalLocked) continue;
-    if(x.partyId===e.partyId){ x.amount = amt; x.remark = newRem.trim(); }
-    else { x.amount = -amt; x.remark = newRem.trim(); }
-  }
-  saveNow();
-  renderMain();
-}
-
-function openDelete(id){
-  var e = null;
-  for(var i=0;i<STATE.ledgers.length;i++) if(STATE.ledgers[i].id===id) e = STATE.ledgers[i];
-  if(!e) return;
-  if(e.openingLocked || ((e.remark||"").toLowerCase()==="opening") || e.finalLocked) return alert("Locked");
-  if(!confirm("Delete from both sides?")) return;
-  var nl = [];
-  for(var j=0;j<STATE.ledgers.length;j++){
-    var x = STATE.ledgers[j];
-    if(x.openingLocked || ((x.remark||"").toLowerCase()==="opening") || x.finalLocked){ nl.push(x); continue; }
-    if(x.pairId && e.pairId){ if(x.pairId!==e.pairId) nl.push(x); }
-    else { if(x.id!==e.id) nl.push(x); }
-  }
-  STATE.ledgers = nl;
-  saveNow();
-  renderMain();
-}
-
-function addParty(){
-  var name = $("new-party-name").value.trim().toUpperCase();
-  if(!name) return alert("Enter name");
-  for(var i=0;i<STATE.parties.length;i++) if(STATE.parties[i].id===name) return alert("Exists");
-  requirePin(function(){
-    STATE.parties.push({ id:name, name:name, status:"Active" });
-    STATE.history.unshift({ id:"h_"+Date.now(), dateDisplay:dmy(today()), timeDisplay:nowT(), action:"Created", partyId:name, oldVal:"-", newVal:name, remark:"Created" });
-    saveNow();
-    renderDashboard();
-  }, "Create Party "+name);
-}
-
-function toggleActive(pid){
-  var p = null;
-  for(var i=0;i<STATE.parties.length;i++) if(STATE.parties[i].id===pid) p = STATE.parties[i];
-  if(!p) return;
-  var next = p.status==="Active" ? "Deactive" : "Active";
-  requirePin(function(){
-    var old = p.status;
-    p.status = next;
-    STATE.history.unshift({ id:"h_"+Date.now(), dateDisplay:dmy(today()), timeDisplay:nowT(), action:next, partyId:pid, oldVal:old, newVal:next, remark:next });
-    saveNow();
-    renderMain();
-  }, "Toggle "+pid);
-}
-
-function editParty(pid){
-  var p = null;
-  for(var i=0;i<STATE.parties.length;i++) if(STATE.parties[i].id===pid) p = STATE.parties[i];
-  if(!p) return;
-  requirePin(function(){
-    var newName = prompt("New name:", p.name);
-    if(!newName) return;
-    newName = newName.trim().toUpperCase();
-    if(newName===p.id) return;
-    for(var i=0;i<STATE.parties.length;i++) if(STATE.parties[i].id===newName) return alert("Exists");
-    var old = p.id;
-    p.id = newName; p.name = newName;
-    for(var j=0;j<STATE.ledgers.length;j++){
-      if(STATE.ledgers[j].partyId===old) STATE.ledgers[j].partyId = newName;
-      if(STATE.ledgers[j].counterPartyId===old) STATE.ledgers[j].counterPartyId = newName;
+    if (searchStr && searchStr.trim()) {
+      var s = searchStr.toLowerCase();
+      var f = [];
+      for (var m = 0; m < out.length; m++) {
+        var r = out[m];
+        if ((dmy(r.date) + " " + (r.counterPartyId || "") + " " + (r.remark || "")).toLowerCase().indexOf(s) !== -1) f.push(r);
+      }
+      return f;
     }
-    if(STATE.selectedParty===old) STATE.selectedParty = newName;
-    if(STATE.counter===old) STATE.counter = newName;
-    saveNow();
-    renderDashboard();
-  }, "Modify Party");
-}
+    return out;
+  }
 
-function changePassword(){
-  var cur = $("cur-pwd").value, nw = $("new-pwd").value, cf = $("cf-pwd").value;
-  var msg = $("pwd-msg");
-  msg.classList.add("hidden");
-  if(!cur){ msg.textContent="Current password required"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-  if(!nw || nw.length<6){ msg.textContent="New password min 6"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-  if(nw!==cf){ msg.textContent="Passwords do not match"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-  sb.auth.getUser().then(function(r){
-    if(!r.data.user) return;
-    sb.auth.signInWithPassword({ email:r.data.user.email, password:cur }).then(function(vr){
-      if(vr.error){ msg.textContent="Current password wrong"; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-      sb.auth.updateUser({ password:nw }).then(function(ur){
-        if(ur.error){ msg.textContent=ur.error.message; msg.className="text-[12px] font-bold text-red-600"; msg.classList.remove("hidden"); return; }
-        msg.textContent="Password changed!"; msg.className="text-[12px] font-bold text-green-600"; msg.classList.remove("hidden");
-        $("cur-pwd").value=""; $("new-pwd").value=""; $("cf-pwd").value="";
-      });
-    });
+  var finalRows = useMemo(function() { return buildFRRows(finalFilter, ""); }, [finals, finalFilter]);
+  var frRows = useMemo(function() { return buildFRRows(selectedParty, frSearch); }, [finals, selectedParty, frSearch]);
+
+  var frSummary = useMemo(function() {
+    var pf = [];
+    for (var i = 0; i < finals.length; i++) if (finals[i].partyId === selectedParty) pf.push(finals[i]);
+    var sorted = pf.slice().sort(function(a, b) { return (a.createdAt || 0) - (b.createdAt || 0); });
+    return {
+      totalGroups: pf.length,
+      totalRows: pf.reduce(function(a, g) { return a + (g.entries || []).length; }, 0),
+      closingBal: sorted.length > 0 ? (sorted[sorted.length - 1].balance || 0) : 0
+    };
+  }, [finals, selectedParty]);
+
+  var selectedPartyObj = null;
+  for (var spi = 0; spi < parties.length; spi++) if (parties[spi].id === selectedParty) selectedPartyObj = parties[spi];
+  var isDeactive = selectedPartyObj && selectedPartyObj.status !== "Active";
+
+  var NAV = [
+    { id: "ledger", label: "LEDGER", icon: "📒" },
+    { id: "party", label: "PARTY MANAGER", icon: "👥" },
+    { id: "final", label: "FINAL REPORT", icon: "📄" },
+    { id: "trial", label: "TRIAL BALANCE", icon: "⚖️" },
+    { id: "profile", label: "PROFILE", icon: "👤" }
+  ];
+
+  var navBtns = NAV.map(function(n) {
+    return h("button", {
+      key: n.id,
+      onClick: function() { setTab(n.id); },
+      className: "w-full h-11 rounded-xl border flex items-center gap-3 px-3.5 text-[13px] font-bold text-left " + (tab === n.id ? T.sidebarActive : T.sidebarInactive)
+    }, h("span", null, n.icon), n.label);
   });
+
+  var partyOpts = parties.map(function(p) {
+    return h("option", { key: p.id, value: p.id }, p.id + (p.status === "Deactive" ? " (Deactive)" : ""));
+  });
+
+  var counterOpts = parties.filter(function(p) { return p.id !== selectedParty && p.status === "Active"; }).map(function(p) {
+    return h("option", { key: p.id, value: p.id }, p.id);
+  });
+
+  var header = h("header", { className: "sticky top-0 z-40 border-b flex items-center justify-between px-3 py-2 h-16 " + T.header },
+    h("div", { className: "flex items-center gap-2 flex-1 min-w-0 flex-wrap" },
+      h("label", { className: "text-[13px] font-semibold" }, "Party:"),
+      h("select", {
+        value: selectedParty,
+        onChange: function(e) {
+          setSelectedParty(e.target.value);
+          var alt = null;
+          for (var i = 0; i < parties.length; i++) if (parties[i].id !== e.target.value && parties[i].status === "Active") { alt = parties[i]; break; }
+          if (alt) setCounter(alt.id);
+        },
+        className: "h-10 rounded-lg border px-3 text-[13px] font-bold " + T.input
+      }, partyOpts),
+      h("div", { className: "text-[18px] font-black " + (balMap.total >= 0 ? "text-green-600" : "text-red-600") }, "Closing Balance: " + fmt(balMap.total))
+    ),
+    h("div", { className: "flex gap-2 items-center" },
+      h("div", { className: "text-[11px] font-bold px-2 py-1 rounded-full " + (saveStatus === "saving" ? "bg-amber-100 text-amber-700" : saveStatus === "saved" ? "bg-green-100 text-green-700" : saveStatus === "error" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500") },
+        saveStatus === "saving" ? "☁️ Saving..." : saveStatus === "saved" ? "✓ Saved" : saveStatus === "error" ? "❌ Failed" : "☁️ Cloud"
+      ),
+      h("button", { onClick: exportCSV, className: "h-9 px-3 rounded-lg text-[13px] border " + T.exportBtnAlt }, "📊 Excel"),
+      h("button", { onClick: requestFinal, className: "h-9 px-4 rounded-lg text-[13px] font-bold " + T.closingBtn }, "FINAL", pin ? " 🔒" : ""),
+      h("button", { onClick: logout, className: "h-9 px-3 rounded-lg text-[13px] font-bold border " + T.exportBtnAlt }, "Logout")
+    )
+  );
+
+  var sidebar = h("aside", { className: "fixed inset-y-0 left-0 w-[260px] border-r flex flex-col z-50 " + T.sidebarBg },
+    h("div", { className: "h-16 flex items-center justify-center border-b" },
+      h("div", { className: "text-[14px] font-black text-cyan-700" }, "ULTRA LEDGER")
+    ),
+    h("div", { className: "p-3 flex flex-col gap-2 flex-1" }, navBtns),
+    h("div", { className: "p-3 border-t text-[10px] font-bold opacity-70" },
+      h("div", null, "☁️ Cloud: ", h("b", { className: "text-green-600" }, "ON")),
+      h("div", { className: "mt-1" }, "👤 " + (profile.full_name || profile.username)),
+      h("div", { className: "mt-1" }, "📅 Backup: ", lastBackup ? new Date(lastBackup).toLocaleString("en-IN") : h("b", { className: "text-red-500" }, "Never"))
+    )
+  );
+
+  var ledgerRows = filteredEntries.map(function(e) {
+    var bal = balMap.map.get(e.id) || 0;
+    var locked = e.openingLocked || (e.remark || "").toLowerCase() === "opening" || e.finalLocked;
+    var cells = [];
+    if (showCols.date) cells.push(h("td", { key: "d", className: "py-0.5 px-2.5 font-mono text-[12px] whitespace-nowrap" }, dmy(e.date), e.time ? h("span", { className: "ml-2 text-[10px] opacity-60 font-bold" }, e.time.slice(0, 5)) : null));
+    if (showCols.counter) cells.push(h("td", { key: "c", className: "py-0.5 px-2.5 text-[13px] font-bold" }, e.counterPartyId || "-"));
+    if (showCols.remark) cells.push(h("td", { key: "r", className: "py-0.5 px-2.5 text-[13px] font-semibold max-w-[200px] truncate" }, e.remark || "-"));
+    if (showCols.debit) cells.push(h("td", { key: "db", className: "py-0.5 px-2 text-right font-mono text-[13px] font-bold" }, e.amount < 0 ? h("span", { className: "text-red-600" }, fmtAbs(e.amount)) : h("span", { className: "opacity-30" }, "-")));
+    if (showCols.credit) cells.push(h("td", { key: "cr", className: "py-0.5 px-2 text-right font-mono text-[13px] font-bold" }, e.amount > 0 ? h("span", { className: "text-green-600" }, fmt(e.amount)) : h("span", { className: "opacity-30" }, "-")));
+    if (showCols.balance) cells.push(h("td", { key: "b", className: "py-0.5 px-2 text-right font-mono text-[13px] font-black " + (bal < 0 ? "text-red-600" : "text-green-600") }, fmt(bal)));
+    if (showCols.action) cells.push(h("td", { key: "a", className: "py-0.5 px-2" },
+      h("div", { className: "flex gap-1" },
+        h("button", { onClick: function() { openEdit(e); }, disabled: locked, className: "px-1.5 py-0.5 rounded text-[10px] font-bold border " + (locked ? "opacity-20 bg-gray-100" : T.modBtn) }, "Mod"),
+        h("button", { onClick: function() { openDelete(e); }, disabled: locked, className: "px-1.5 py-0.5 rounded text-[10px] font-bold border " + (locked ? "opacity-20 bg-gray-100" : T.delBtn) }, "Del")
+      )));
+    return h("tr", { key: e.id, className: "border-t border-gray-100" }, cells);
+  });
+
+  var showColCount = 0;
+  for (var k in showCols) if (showCols[k]) showColCount++;
+
+  var ledgerPage = h("div", { className: "p-2 h-[calc(100vh-64px)] flex flex-col" },
+    h("div", { className: "rounded-xl border p-3 flex-1 flex flex-col min-h-0 " + T.card },
+      h("div", { className: "flex items-center justify-between mb-3 flex-wrap gap-2" },
+        h("div", { className: "flex items-center gap-3 shrink-0" },
+          h("div", { className: "font-black text-[15px]" }, selectedParty + " LEDGER", isDeactive && h("span", { className: "ml-2 px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300 text-[10px] font-black" }, "DEACTIVE"))
+        ),
+        companyName && h("div", { className: "flex-1 text-center px-2 min-w-0" },
+          h("div", { className: "text-[16px] font-black tracking-tight text-cyan-700 truncate inline-block max-w-full" }, companyName)
+        ),
+        !companyName && h("div", { className: "flex-1" }),
+        h("div", { className: "flex gap-2 items-center shrink-0" },
+          h("button", { onClick: function() { setFrOpen(true); setFrSearch(""); }, className: "h-8 px-3 rounded-lg border text-[12px] font-black " + T.exportBtnAlt, style: { background: "#e0f2fe", borderColor: "#7dd3fc", color: "#0369a1" } }, "📄 FR"),
+          h("input", { value: search, onChange: function(e) { setSearch(e.target.value); }, placeholder: "Search...", className: "h-8 w-[200px] rounded-lg border px-3 text-[12.5px] " + T.input }),
+          h("div", { className: "relative" },
+            h("button", { onClick: function() { setShowColDropdown(!showColDropdown); }, className: "h-8 px-3 rounded-lg border text-[12px] font-bold " + T.exportBtnAlt }, "Columns " + showColCount + "/7"),
+            showColDropdown && h("div", { className: "absolute right-0 top-9 w-56 rounded-xl border shadow-2xl z-40 p-2 " + T.card },
+              Object.entries(showCols).map(function(entry) {
+                var k = entry[0];
+                var v = entry[1];
+                return h("label", { key: k, className: "flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 cursor-pointer text-[13px]" },
+                  h("input", { type: "checkbox", checked: v, onChange: function() { var nsc = {}; for (var kk in showCols) nsc[kk] = showCols[kk]; nsc[k] = !nsc[k]; setShowCols(nsc); } }),
+                  h("span", { className: v ? "" : "opacity-40 line-through" }, k)
+                );
+              })
+            )
+          )
+        )
+      ),
+      h("div", { className: "rounded-lg border overflow-auto flex-1 min-h-0" },
+        h("table", { className: "w-full border-collapse", style: { fontSize: "13px" } },
+          h("thead", { className: "sticky top-0 z-[5] " + T.tableHeader },
+            h("tr", null,
+              showCols.date ? h("th", { className: "py-1.5 px-2.5 text-left font-black text-[11px] uppercase" }, "Date") : null,
+              showCols.counter ? h("th", { className: "py-1.5 px-2.5 text-left font-black text-[11px] uppercase" }, "Counter") : null,
+              showCols.remark ? h("th", { className: "py-1.5 px-2.5 text-left font-black text-[11px] uppercase" }, "Remark") : null,
+              showCols.debit ? h("th", { className: "py-1.5 px-2 text-right font-black text-[11px] uppercase" }, "Debit") : null,
+              showCols.credit ? h("th", { className: "py-1.5 px-2 text-right font-black text-[11px] uppercase" }, "Credit") : null,
+              showCols.balance ? h("th", { className: "py-1.5 px-2 text-right font-black text-[11px] uppercase" }, "Balance") : null,
+              showCols.action ? h("th", { className: "py-1.5 px-2.5 text-left font-black text-[11px] uppercase" }, "Action") : null
+            )
+          ),
+          h("tbody", null,
+            ledgerRows.length === 0 && h("tr", null, h("td", { colSpan: 7, className: "p-6 text-center opacity-60" }, "No entries")),
+            ledgerRows
+          )
+        )
+      ),
+      isDeactive && h("div", { className: "mt-3 p-2 rounded-lg border-2 border-dashed border-red-400 bg-red-50 text-red-700 text-[13px] font-black text-center" }, "⚠️ " + selectedParty + " is DEACTIVE"),
+      h("div", { className: "mt-3 pt-3 border-t flex gap-2 items-end", style: isDeactive ? { opacity: 0.4, pointerEvents: "none" } : {} },
+        h("div", { style: { flex: "0 0 22%" } },
+          h("label", { className: "text-[11px] font-black uppercase opacity-70" }, "Counter"),
+          h("select", { ref: counterRef, value: counter, onChange: function(e) { setCounter(e.target.value); }, onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); if (amountRef.current) amountRef.current.focus(); } }, className: "w-full h-10 rounded-lg border px-3 text-[13px] font-bold " + T.input }, counterOpts)
+        ),
+        h("div", { style: { flex: "0 0 22%" } },
+          h("label", { className: "text-[11px] font-black uppercase opacity-70" }, "Amount"),
+          h("input", { ref: amountRef, value: amount, onChange: function(e) { if (/^[+\-\d.\s\/]*$/.test(e.target.value)) setAmount(e.target.value); }, onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); if (!amount.trim()) { notify("Enter amount"); return; } if (remarkRef.current) remarkRef.current.focus(); } }, placeholder: counter && allPartyBalances[counter] !== undefined ? "Bal: " + fmt(allPartyBalances[counter]) : "100/200", className: "w-full h-10 rounded-lg border px-3 text-[15px] font-black " + T.input })
+        ),
+        h("div", { style: { flex: "1" } },
+          h("label", { className: "text-[11px] font-black uppercase opacity-70" }, "Remark"),
+          h("input", { ref: remarkRef, value: remark, onChange: function(e) { setRemark(e.target.value); }, onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); addEntry(); } }, placeholder: "Pay...", className: "w-full h-10 rounded-lg border px-3 text-[13px] font-semibold " + T.input })
+        ),
+        h("button", { ref: addBtnRef, onClick: addEntry, onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); addEntry(); } }, className: "h-10 px-4 rounded-lg font-black text-[14px] " + T.addBtn }, "ADD")
+      )
+    )
+  );
+
+  var partyRows = parties.map(function(p) {
+    var bal = allPartyBalances[p.id] || 0;
+    var active = p.status === "Active";
+    var frCount = 0;
+    for (var f = 0; f < finals.length; f++) if (finals[f].partyId === p.id) frCount++;
+    return h("div", { key: p.id, className: "py-3 flex items-center justify-between border-t" },
+      h("div", { className: "flex items-center gap-3" },
+        h("div", { className: "w-10 h-10 rounded-full flex items-center justify-center font-black " + T.logoBg }, p.id[0]),
+        h("div", null,
+          h("div", { className: "flex items-center gap-2" },
+            h("span", { className: "font-black text-[14px]" }, p.name),
+            h("span", { className: "px-2 py-0.5 rounded-full text-[10px] font-black border " + (active ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800") }, p.status),
+            frCount > 0 && h("span", { className: "px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200 text-[10px] font-black" }, "FR")
+          ),
+          h("div", { className: "text-[13px] font-bold font-mono " + (bal < 0 ? "text-red-600" : "text-green-600") }, fmt(bal))
+        )
+      ),
+      h("div", { className: "flex gap-2" },
+        h("button", { onClick: function() { toggleActive(p); }, className: "h-9 px-3 rounded-full text-[12px] font-black border " + (active ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800") }, active ? "Active" : "Deactive"),
+        h("button", { onClick: function() { openEditParty(p); }, className: "h-9 px-3 rounded-full text-[12px] font-black border " + T.exportBtnAlt }, "Modify")
+      )
+    );
+  });
+
+  var partyPage = h("div", { className: "p-4 max-w-5xl mx-auto w-full flex flex-col gap-4" },
+    h("div", { className: "rounded-xl border p-6 " + T.card },
+      h("div", { className: "font-black text-[15px] mb-4" }, "PARTY MANAGER", pin && h("span", { className: "ml-2 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300" }, "🔒 PIN Protected")),
+      h("div", { className: "flex gap-3" },
+        h("input", { value: newPartyName, onChange: function(e) { setNewPartyName(e.target.value.toUpperCase()); }, placeholder: "AA BB", className: "flex-1 h-14 rounded-xl border px-4 text-[15px] font-bold " + T.input }),
+        h("button", { onClick: addParty, className: "h-14 w-24 rounded-xl text-[14px] font-black " + T.addBtn }, "Add")
+      )
+    ),
+    h("div", { className: "rounded-xl border p-6 " + T.card },
+      h("div", { className: "flex justify-between mb-4" },
+        h("div", { className: "font-black text-[14px]" }, "ALL PARTIES"),
+        h("button", { onClick: function() { setHistoryOpen(true); }, className: "h-9 px-4 rounded-full text-[12px] font-black border " + T.exportBtnAlt }, "🕐 History")
+      ),
+      partyRows
+    )
+  );
+
+  var finalRendered = finalRows.map(function(r) {
+    return h("tr", { key: r.id, className: "border-t " + (r.isClosing ? "bg-cyan-300 font-bold" : r.isOpeningEntry ? "bg-amber-50" : "") },
+      h("td", { className: "py-0.5 px-2.5 font-mono text-[12px]" }, dmy(r.date)),
+      h("td", { className: "py-0.5 px-2.5 font-black text-[12px]" }, h("span", { className: "px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-800 border border-slate-300 text-[10px]" }, r.partyId)),
+      h("td", { className: "py-0.5 px-2.5 font-bold" }, r.counterPartyId || "-"),
+      h("td", { className: "py-0.5 px-2.5 font-semibold" }, r.remark || "-"),
+      h("td", { className: "py-0.5 px-2 text-right font-mono" }, r._debit === "-" ? "-" : fmtAbs(r._debit)),
+      h("td", { className: "py-0.5 px-2 text-right font-mono" }, r._credit === "-" ? "-" : fmt(r._credit)),
+      h("td", { className: "py-0.5 px-2 text-right font-mono font-black " + (r._bal < 0 ? "text-red-600" : "text-green-600") }, fmt(r._bal))
+    );
+  });
+
+  var finalPage = h("div", { className: "p-4" },
+    h("div", { className: "max-w-[1150px] mx-auto" },
+      h("div", { className: "flex justify-between items-center mb-3 gap-2 flex-wrap" },
+        h("div", { className: "font-black text-[15px]" }, "FINAL REPORT"),
+        h("div", { className: "flex items-center gap-2 flex-wrap" },
+          h("label", { className: "text-[12px] font-black uppercase opacity-70" }, "Party:"),
+          h("select", { value: finalFilter, onChange: function(e) { setFinalFilter(e.target.value); }, className: "h-9 rounded-lg border px-3 text-[13px] font-bold " + T.input },
+            h("option", { value: "" }, "Select Party..."),
+            parties.map(function(p) { return h("option", { key: p.id, value: p.id }, p.id); })
+          )
+        )
+      ),
+      h("div", { className: "rounded-lg border overflow-auto max-h-[calc(100vh-260px)] " + T.card },
+        h("table", { className: "w-full" },
+          h("thead", { className: "sticky top-0 " + T.tableHeader },
+            h("tr", null, ["Date", "Party", "Counter", "Remark", "Debit", "Credit", "Balance"].map(function(hd) {
+              return h("th", { key: hd, className: "py-1.5 px-2.5 text-left font-black text-[11px] uppercase" }, hd);
+            }))
+          ),
+          h("tbody", null,
+            finalRows.length === 0 && h("tr", null, h("td", { colSpan: 7, className: "p-8 text-center opacity-60" }, finalFilter ? "No FINAL records" : "Select a party")),
+            finalRendered
+          )
+        )
+      )
+    )
+  );
+
+  var dpRows = trial.debitParties.length === 0
+    ? [h("div", { key: "none", className: "text-center py-8 opacity-60 text-[13px] font-bold" }, "No debit parties")]
+    : trial.debitParties.map(function(item) {
+        return h("div", { key: item.party.id, className: "flex justify-between items-center h-12 px-4 rounded-xl border border-red-100" },
+          h("span", { className: "font-black text-[14px]" }, item.party.id),
+          h("span", { className: "font-mono font-black text-red-600 text-[14px]" }, fmt(item.bal))
+        );
+      });
+
+  var cpRows = trial.creditParties.length === 0
+    ? [h("div", { key: "none", className: "text-center py-8 opacity-60 text-[13px] font-bold" }, "No credit parties")]
+    : trial.creditParties.map(function(item) {
+        return h("div", { key: item.party.id, className: "flex justify-between items-center h-12 px-4 rounded-xl border border-green-100" },
+          h("span", { className: "font-black text-[14px]" }, item.party.id),
+          h("span", { className: "font-mono font-black text-green-600 text-[14px]" }, fmt(item.bal))
+        );
+      });
+
+  var trialPage = h("div", { className: "p-4 max-w-6xl mx-auto w-full flex flex-col gap-4" },
+    h("div", { className: "rounded-xl border p-4 flex flex-wrap gap-3 items-center " + T.card },
+      h("span", { className: "text-[13px] font-black" }, "From"),
+      h("input", { type: "date", value: filterFrom, onChange: function(e) { setFilterFrom(e.target.value); }, className: "h-11 rounded-lg border px-3 text-[13px] font-bold " + T.input }),
+      h("span", { className: "text-[13px] font-black" }, "To"),
+      h("input", { type: "date", value: filterTo, onChange: function(e) { setFilterTo(e.target.value); }, className: "h-11 rounded-lg border px-3 text-[13px] font-bold " + T.input }),
+      h("button", { onClick: function() { setFilterFrom(""); setFilterTo(""); }, className: "h-11 px-5 rounded-lg border text-[13px] font-black " + T.exportBtnAlt }, "Clear")
+    ),
+    h("div", { className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" },
+      h("div", { className: "rounded-xl border p-6 bg-red-50 border-red-200" },
+        h("div", { className: "text-[12px] font-black text-red-800 uppercase" }, "TOTAL DEBIT"),
+        h("div", { className: "text-[22px] font-black text-red-600" }, fmtAbs(trial.debit)),
+        h("div", { className: "text-[12px] font-bold text-red-600" }, trial.debitParties.length + " parties")
+      ),
+      h("div", { className: "rounded-xl border p-6 bg-green-50 border-green-200" },
+        h("div", { className: "text-[12px] font-black text-green-800 uppercase" }, "TOTAL CREDIT"),
+        h("div", { className: "text-[22px] font-black text-green-600" }, fmt(trial.credit)),
+        h("div", { className: "text-[12px] font-bold text-green-600" }, trial.creditParties.length + " parties")
+      ),
+      h("div", { className: "rounded-xl border p-6 bg-cyan-50 border-cyan-200" },
+        h("div", { className: "text-[12px] font-black text-cyan-800 uppercase" }, "DIFFERENCE"),
+        h("div", { className: "text-[22px] font-black text-cyan-700" }, fmtAbs(trial.diff))
+      ),
+      h("div", { className: "rounded-xl border p-6 bg-gray-900 text-white border-gray-900" },
+        h("div", { className: "text-[12px] font-black opacity-70 uppercase" }, "STATUS"),
+        h("div", { className: "text-[18px] font-black" }, trial.status)
+      )
+    ),
+    h("div", { className: "grid md:grid-cols-2 gap-4" },
+      h("div", { className: "rounded-xl border overflow-hidden " + T.card },
+        h("div", { className: "p-4 font-black text-[14px] border-b uppercase" }, "DEBIT SECTION"),
+        h("div", { className: "p-4 space-y-2" }, dpRows)
+      ),
+      h("div", { className: "rounded-xl border overflow-hidden " + T.card },
+        h("div", { className: "p-4 font-black text-[14px] border-b uppercase" }, "CREDIT SECTION"),
+        h("div", { className: "p-4 space-y-2" }, cpRows)
+      )
+    )
+  );
+
+  var themeBtns = Object.entries(THEMES).map(function(entry) {
+    var key = entry[0];
+    var t = entry[1];
+    return h("button", { key: key, onClick: function() { changeTheme(key); }, className: "h-16 rounded-xl border flex items-center justify-between px-5 " + t.card + (theme === key ? " ring-2 ring-cyan-500" : "") },
+      h("span", { className: "font-black text-[14px]" }, t.label),
+      theme === key && h("span", { className: "text-[11px] font-black px-2 py-0.5 rounded-full bg-black text-white" }, "ACTIVE")
+    );
+  });
+
+  var profilePage = h("div", { className: "p-4 max-w-2xl mx-auto w-full flex flex-col gap-4" },
+    h("div", { className: "rounded-xl border p-6 " + T.card },
+      h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "👤 MY ACCOUNT"),
+      h("div", { className: "flex items-center gap-4" },
+        h("div", { className: "w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white flex items-center justify-center text-[24px] font-black" },
+          (profile.full_name || profile.username || "?").charAt(0).toUpperCase()
+        ),
+        h("div", null,
+          h("div", { className: "text-[18px] font-black" }, profile.full_name || profile.username),
+          h("div", { className: "text-[12px] font-bold text-slate-500 font-mono" }, "@" + profile.username)
+        )
+      )
+    ),
+    h(ChangePasswordCard, { T: T }),
+    h("div", { className: "rounded-xl border p-6 " + T.card },
+      h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "🏢 COMPANY NAME" + (pin ? " 🔒" : "")),
+      h("div", { className: "flex gap-3 items-center flex-wrap" },
+        h("input", { value: companyNameInput, onChange: function(e) { setCompanyNameInput(e.target.value); }, placeholder: "Company name", className: "flex-1 min-w-[240px] h-12 rounded-lg border px-4 text-[14px] font-bold " + T.input }),
+        h("button", { onClick: saveCompanyName, className: "h-12 px-6 rounded-lg text-[13px] font-black " + T.addBtn }, "💾 Save"),
+        companyName && h("button", { onClick: clearCompanyName, className: "h-12 px-4 rounded-lg bg-red-100 text-red-700 border border-red-300 text-[12px] font-black" }, "🗑️ Clear")
+      )
+    ),
+    h("div", { className: "rounded-xl border p-6 " + T.card },
+      h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "🎨 THEME"),
+      h("div", { className: "grid grid-cols-2 gap-4" }, themeBtns)
+    ),
+    h("div", { className: "rounded-xl border p-6 " + T.card },
+      h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "🔐 PIN SECURITY"),
+      !pin ? h("div", { className: "flex flex-col gap-3" },
+        h("div", { className: "text-[12px] font-semibold opacity-70" }, "Set a PIN to protect: FINAL, Party, Company Name, Backup"),
+        h("div", { className: "flex gap-3 items-center flex-wrap" },
+          h("input", { type: "password", maxLength: 6, value: pinInput, onChange: function(e) { setPinInput(e.target.value.replace(/[^0-9]/g, "")); setPinMsg(""); }, placeholder: "Enter 4-6 digit PIN", className: "h-12 rounded-lg border px-4 text-[14px] font-bold w-[220px] tracking-widest " + T.input }),
+          h("button", { onClick: function() { if (pinInput.length < 4) return setPinMsg("Min 4 digits"); var np = pinInput; setPin(np); setPinInput(""); saveNow({ pin: np }); notify("PIN Set"); }, className: "h-12 px-6 rounded-lg text-[13px] font-black " + T.addBtn }, "Set PIN")
+        ),
+        pinMsg && h("div", { className: "text-[12px] font-bold text-red-600" }, pinMsg)
+      ) : h("div", { className: "flex flex-col gap-3" },
+        h("div", { className: "text-[12px] font-semibold text-green-700" }, "✅ PIN is SET"),
+        h("div", { className: "flex gap-3 items-center flex-wrap" },
+          h("span", { className: "px-4 py-2 rounded-lg border bg-green-50 text-green-800 text-[13px] font-black tracking-widest" }, "PIN: " + "●".repeat(pin.length)),
+          h("button", { onClick: removePin, className: "h-10 px-4 rounded-lg bg-red-100 text-red-700 border border-red-300 text-[12px] font-black" }, "🗑️ Remove PIN")
+        )
+      )
+    ),
+    h("div", { className: "rounded-xl border p-6 " + T.card },
+      h("div", { className: "font-black text-[15px] mb-4 uppercase" }, "💾 BACKUP & RESTORE"),
+      h("div", { className: "flex gap-3 flex-wrap" },
+        h("button", { onClick: backupJSON, className: "h-12 px-6 rounded-lg text-[13px] font-black border " + T.exportBtnAlt }, "⬇️ Backup JSON"),
+        h("button", { onClick: triggerRestore, className: "h-12 px-6 rounded-lg text-[13px] font-black border " + T.exportBtnAlt }, "⬆️ Restore"),
+        h("input", { ref: fileInputRef, type: "file", accept: ".json", onChange: doRestore, className: "hidden" })
+      )
+    )
+  );
+
+  var pages = { ledger: ledgerPage, party: partyPage, final: finalPage, trial: trialPage, profile: profilePage };
+
+  var modal = function(children, onClose) {
+    return h("div", { className: "fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4", onClick: onClose },
+      h("div", { className: "w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick: function(e) { e.stopPropagation(); } }, children)
+    );
+  };
+
+  return h("div", { className: "min-h-screen flex flex-col " + T.pageBg + " " + T.text },
+    header,
+    h("div", { className: "flex flex-1 relative" },
+      sidebar,
+      h("main", { className: "flex-1 ml-[260px] min-w-0 flex flex-col overflow-auto" }, pages[tab])
+    ),
+
+    editEntry && modal([
+      h("div", { key: "t", className: "font-black text-[15px] mb-3" }, "Modify Entry"),
+      h("div", { key: "b", className: "space-y-3" },
+        h("input", { type: "date", value: editForm.date, onChange: function(e) { setEditForm({ date: e.target.value, counter: editForm.counter, amount: editForm.amount, remark: editForm.remark }); }, className: "w-full h-10 rounded-lg border px-3 text-[13px] font-bold " + T.input }),
+        h("input", { value: editForm.counter, onChange: function(e) { setEditForm({ date: editForm.date, counter: e.target.value.toUpperCase(), amount: editForm.amount, remark: editForm.remark }); }, className: "w-full h-10 rounded-lg border px-3 text-[13px] font-bold " + T.input }),
+        h("input", { value: editForm.amount, onChange: function(e) { setEditForm({ date: editForm.date, counter: editForm.counter, amount: e.target.value, remark: editForm.remark }); }, className: "w-full h-10 rounded-lg border px-3 text-[15px] font-black " + T.input }),
+        h("input", { value: editForm.remark, onChange: function(e) { setEditForm({ date: editForm.date, counter: editForm.counter, amount: editForm.amount, remark: e.target.value }); }, className: "w-full h-10 rounded-lg border px-3 text-[13px] " + T.input }),
+        h("div", { className: "flex gap-2 pt-2" },
+          h("button", { onClick: function() { setEditEntry(null); }, className: "flex-1 h-11 rounded-lg border font-bold " + T.exportBtnAlt }, "Cancel"),
+          h("button", { onClick: saveEdit, className: "flex-1 h-11 rounded-lg font-black " + T.addBtn }, "Save")
+        )
+      )
+    ], function() { setEditEntry(null); }),
+
+    deleteEntry && modal([
+      h("div", { key: "t", className: "font-black text-[15px] mb-3" }, "Delete Entry?"),
+      h("p", { key: "p", className: "text-[13px] mb-4" }, "Delete from both sides?"),
+      h("div", { key: "b", className: "flex gap-2" },
+        h("button", { onClick: function() { setDeleteEntry(null); }, className: "flex-1 h-11 rounded-lg border font-bold " + T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick: doDelete, className: "flex-1 h-11 rounded-lg bg-red-600 text-white font-black" }, "Delete")
+      )
+    ], function() { setDeleteEntry(null); }),
+
+    confirmFinal && modal([
+      h("div", { key: "t", className: "font-black text-[15px] mb-3" }, "FINAL Closing - " + selectedParty + "?"),
+      h("p", { key: "p", className: "text-[13px] mb-4" }, "Move entries (Balance " + fmt(balMap.total) + ") to Final Report."),
+      h("div", { key: "b", className: "flex gap-2" },
+        h("button", { onClick: function() { setConfirmFinal(false); }, className: "flex-1 h-11 rounded-lg border font-bold " + T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick: doFinal, className: "flex-1 h-11 rounded-lg font-black " + T.closingBtn }, "Confirm FINAL")
+      )
+    ], function() { setConfirmFinal(false); }),
+
+    lockedInfo && modal([
+      h("div", { key: "t", className: "font-black text-[15px] mb-3" }, "🔒 Entry Locked"),
+      h("p", { key: "p", className: "text-[13px] mb-4" }, lockedInfo.reason),
+      h("button", { key: "b", onClick: function() { setLockedInfo(null); }, className: "w-full h-11 rounded-lg bg-black text-white font-black" }, "OK")
+    ], function() { setLockedInfo(null); }),
+
+    partyConfirm && modal([
+      h("div", { key: "t", className: "font-black text-[15px] mb-3" }, 'Create "' + partyConfirm.name + '"?'),
+      h("div", { key: "b", className: "flex gap-2" },
+        h("button", { onClick: function() { setPartyConfirm(null); }, className: "flex-1 h-11 rounded-lg border font-bold " + T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick: confirmAddParty, className: "flex-1 h-11 rounded-lg font-black " + T.addBtn }, "Create")
+      )
+    ], function() { setPartyConfirm(null); }),
+
+    toggleConfirm && modal([
+      h("div", { key: "t", className: "font-black text-[15px] mb-3" }, toggleConfirm.next + " " + toggleConfirm.party.id + "?"),
+      h("p", { key: "p", className: "text-[13px] mb-4" }, "Balance " + fmt(allPartyBalances[toggleConfirm.party.id] || 0)),
+      h("div", { key: "b", className: "flex gap-2" },
+        h("button", { onClick: function() { setToggleConfirm(null); }, className: "flex-1 h-11 rounded-lg border font-bold " + T.exportBtnAlt }, "No"),
+        h("button", { onClick: confirmToggle, className: "flex-1 h-11 rounded-lg font-black " + (toggleConfirm.next === "Deactive" ? "bg-red-600 text-white" : T.addBtn) }, "Yes")
+      )
+    ], function() { setToggleConfirm(null); }),
+
+    editParty && modal([
+      h("div", { key: "t", className: "font-black text-[15px] mb-3" }, "Modify Party - " + editParty.id),
+      h("input", { key: "i", value: editPartyName, onChange: function(e) { setEditPartyName(e.target.value.toUpperCase()); }, className: "w-full h-11 rounded-lg border px-3 text-[15px] font-black " + T.input }),
+      h("div", { key: "b", className: "flex gap-2 mt-3" },
+        h("button", { onClick: function() { setEditParty(null); }, className: "flex-1 h-11 rounded-lg border font-bold " + T.exportBtnAlt }, "Cancel"),
+        h("button", { onClick: saveEditParty, className: "flex-1 h-11 rounded-lg font-black " + T.addBtn }, "Save")
+      )
+    ], function() { setEditParty(null); }),
+
+    frOpen && h("div", { className: "fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4", onClick: function() { setFrOpen(false); } },
+      h("div", { className: "w-full max-w-[1100px] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] " + T.card, onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "px-4 py-3 flex justify-between items-center", style: { background: "linear-gradient(90deg,#0369a1,#0891b2)" } },
+          h("div", { className: "flex items-center gap-3 text-white" },
+            h("span", { className: "text-[20px]" }, "📄"),
+            h("div", null,
+              h("div", { className: "font-black text-[15px] tracking-wide" }, "FINAL REPORT - " + selectedParty),
+              h("div", { className: "text-[11px] opacity-90 font-bold" }, "Groups: " + frSummary.totalGroups + " | Rows: " + frSummary.totalRows + " | Closing: " + fmt(frSummary.closingBal))
+            )
+          ),
+          h("button", { onClick: function() { setFrOpen(false); }, className: "w-8 h-8 rounded-lg bg-white/20 text-white font-black" }, "✕")
+        ),
+        h("div", { className: "px-3 py-2 border-b flex justify-between items-center flex-wrap gap-2 " + T.card },
+          h("input", { value: frSearch, onChange: function(e) { setFrSearch(e.target.value); }, placeholder: "Search...", className: "h-9 w-[280px] rounded-lg border px-3 text-[12.5px] " + T.input }),
+          h("div", { className: "flex gap-2 items-center" },
+            frSearch && h("button", { onClick: function() { setFrSearch(""); }, className: "h-9 px-3 rounded-lg border text-[12px] font-bold " + T.exportBtnAlt }, "✕"),
+            h("span", { className: "text-[11px] font-black opacity-60 px-2" }, frRows.length + " rows"),
+            h("button", { onClick: exportFRExcel, className: "h-9 px-4 rounded-lg text-[13px] font-black bg-emerald-600 text-white" }, "📊 Excel")
+          )
+        ),
+        h("div", { className: "overflow-auto flex-1" },
+          h("table", { className: "w-full", style: { fontSize: "13px" } },
+            h("thead", { className: "sticky top-0 z-[5] " + T.tableHeader },
+              h("tr", null, ["Date", "Counter", "Remark", "Debit", "Credit", "Balance"].map(function(hd) {
+                return h("th", { key: hd, className: "py-1.5 px-2.5 text-left font-black text-[11px] uppercase" }, hd);
+              }))
+            ),
+            h("tbody", null,
+              frRows.length === 0 && h("tr", null, h("td", { colSpan: 6, className: "p-8 text-center opacity-60 font-bold" }, "No FINAL records")),
+              frRows.map(function(r) {
+                return h("tr", { key: r.id, className: "border-t " + (r.isClosing ? "bg-cyan-300 font-bold" : r.isOpeningEntry ? "bg-amber-50" : "") },
+                  h("td", { className: "py-0.5 px-2.5 font-mono text-[12px]" }, dmy(r.date)),
+                  h("td", { className: "py-0.5 px-2.5 font-bold" }, r.counterPartyId || "-"),
+                  h("td", { className: "py-0.5 px-2.5 font-semibold" }, r.remark || "-"),
+                  h("td", { className: "py-0.5 px-2 text-right font-mono" }, r._debit === "-" ? "-" : fmtAbs(r._debit)),
+                  h("td", { className: "py-0.5 px-2 text-right font-mono" }, r._credit === "-" ? "-" : fmt(r._credit)),
+                  h("td", { className: "py-0.5 px-2 text-right font-mono font-black " + (r._bal < 0 ? "text-red-600" : "text-green-600") }, fmt(r._bal))
+                );
+              })
+            )
+          )
+        )
+      )
+    ),
+
+    historyOpen && h("div", { className: "fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4", onClick: function() { setHistoryOpen(false); } },
+      h("div", { className: "w-full max-w-5xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] " + T.card, onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "bg-gray-900 text-white px-4 py-3 flex justify-between" },
+          h("div", { className: "font-black text-[14px] uppercase" }, "PARTY HISTORY"),
+          h("button", { onClick: function() { setHistoryOpen(false); }, className: "w-7 h-7 rounded bg-white/20 font-bold" }, "✕")
+        ),
+        h("div", { className: "px-3 py-2 border-b flex justify-between" },
+          h("select", { value: historyFilter, onChange: function(e) { setHistoryFilter(e.target.value); }, className: "h-8 rounded border px-2 text-[12px] font-bold " + T.input },
+            h("option", null, "All"),
+            parties.map(function(p) { return h("option", { key: p.id }, p.id); })
+          ),
+          h("button", { onClick: exportHistory, className: "h-8 px-3 rounded text-[12px] font-black bg-slate-900 text-white" }, "Export")
+        ),
+        h("div", { className: "overflow-auto flex-1" },
+          h("table", { className: "w-full", style: { fontSize: "13px" } },
+            h("thead", { className: T.tableHeader },
+              h("tr", null, ["Date", "Time", "Action", "Party", "Old", "New", "Remark"].map(function(x) {
+                return h("th", { key: x, className: "py-1.5 px-2.5 text-left font-black text-[11px] uppercase" }, x);
+              }))
+            ),
+            h("tbody", null, (historyFilter === "All" ? history : history.filter(function(x) { return x.partyId === historyFilter || x.oldVal === historyFilter || x.newVal === historyFilter; })).map(function(x) {
+              return h("tr", { key: x.id, className: "border-t" },
+                h("td", { className: "py-1.5 px-2.5 font-mono text-[12px] font-bold" }, x.dateDisplay),
+                h("td", { className: "py-1.5 px-2.5 font-bold" }, x.timeDisplay),
+                h("td", { className: "py-1.5 px-2.5" }, h("span", { className: "px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black" }, x.action)),
+                h("td", { className: "py-1.5 px-2.5 font-black text-[13px]" }, x.partyId),
+                h("td", { className: "py-1.5 px-2.5 font-mono font-bold text-[12px]" }, x.oldVal),
+                h("td", { className: "py-1.5 px-2.5 font-mono font-bold text-[12px]" }, x.newVal),
+                h("td", { className: "py-1.5 px-2.5 font-semibold truncate max-w-[200px]" }, x.remark)
+              );
+            }))
+          )
+        )
+      )
+    ),
+
+    pinPrompt && h("div", { className: "fixed inset-0 z-[95] bg-black/70 flex items-center justify-center p-4", onClick: function() { setPinPrompt(null); } },
+      h("div", { className: "w-full max-w-[400px] rounded-xl bg-white shadow-2xl p-5 flex flex-col gap-3", onClick: function(e) { e.stopPropagation(); } },
+        h("div", { className: "font-black text-[15px]" }, "🔐 PIN Required"),
+        h("div", { className: "text-[12px] text-gray-600" }, "Confirm: " + pinPrompt.label),
+        h("input", { type: "password", autoFocus: true, maxLength: 6, value: pinPromptInput, onChange: function(e) { setPinPromptInput(e.target.value.replace(/[^0-9]/g, "")); setPinPromptErr(""); }, onKeyDown: function(e) { if (e.key === "Enter") { e.preventDefault(); confirmPin(); } }, placeholder: "Enter PIN", className: "w-full h-12 rounded-lg border-2 px-4 text-[18px] font-black tracking-widest text-center" }),
+        pinPromptErr && h("div", { className: "text-[12px] text-red-600 text-center font-bold" }, pinPromptErr),
+        h("div", { className: "flex gap-2" },
+          h("button", { onClick: function() { setPinPrompt(null); }, className: "flex-1 h-11 rounded-lg border font-black" }, "Cancel"),
+          h("button", { onClick: confirmPin, className: "flex-1 h-11 rounded-lg bg-black text-white font-black" }, "Confirm")
+        )
+      )
+    ),
+
+    toast && h("div", { className: "fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-full bg-black text-white text-[14px] font-black shadow-2xl" }, "✓ " + toast)
+  );
 }
 
-function saveCompanyName(){
-  var n = $("company-name-input").value.trim();
-  if(n === STATE.companyName) return alert("No change");
-  requirePin(function(){
-    STATE.companyName = n;
-    saveNow();
-    alert("Saved");
-    renderDashboard();
-  }, "Company Name");
-}
-
-function setPin(){
-  var v = $("pin-input").value;
-  if(v.length<4) return alert("Min 4 digits");
-  STATE.pin = v;
-  saveNow();
-  alert("PIN Set");
-  renderMain();
-}
-
-function backupJSON(){
-  var data = { parties:STATE.parties, ledgers:STATE.ledgers, finals:STATE.finals, pin:STATE.pin, companyName:STATE.companyName, history:STATE.history };
-  downloadBlob(new Blob([JSON.stringify(data,null,2)], { type:"application/json" }), "backup_"+today()+".json");
-  STATE.lastBackup = Date.now();
-  saveNow();
-}
-
-function restoreFile(e){
-  var f = e.target.files[0];
-  if(!f) return;
-  e.target.value = "";
-  requirePin(function(){
-    var r = new FileReader();
-    r.onload = function(){
-      try{
-        var d = JSON.parse(r.result);
-        if(d.parties) STATE.parties = d.parties;
-        if(d.ledgers) STATE.ledgers = d.ledgers;
-        if(d.finals) STATE.finals = d.finals;
-        if(d.pin) STATE.pin = d.pin;
-        if(d.companyName!==undefined) STATE.companyName = d.companyName || "";
-        if(d.history) STATE.history = d.history;
-        saveNow();
-        alert("Restore OK");
-        renderDashboard();
-      }catch(ex){ alert("Invalid file"); }
-    };
-    r.readAsText(f);
-  }, "Restore");
-}
-
-function doLogout(){
-  saveLocal();
-  if(STATE.companyId && STATE.session){
-    sb.from("company_state").upsert({
-      company_id:STATE.companyId, state:buildSnap(),
-      updated_at:new Date().toISOString(), updated_by:STATE.session.user.id
-    }, { onConflict:"company_id" }).then(function(){ sb.auth.signOut(); });
-  } else { sb.auth.signOut(); }
-}
-
-function requirePin(fn, label){
-  if(!STATE.pin){ fn(); return; }
-  var p = prompt("Enter PIN for: "+label);
-  if(p === STATE.pin) fn();
-  else alert("Wrong PIN");
-}
-
-function exportCSV(){
-  var entries = STATE.ledgers.filter(function(l){ return l.partyId===STATE.selectedParty; });
-  entries.sort(function(a,b){ return a.createdAt-b.createdAt; });
-  var csv = "Date,Time,Counter,Amount,Remark,Debit,Credit,Balance\n";
-  var run = 0;
-  for(var i=0;i<entries.length;i++){
-    var e = entries[i]; run += e.amount;
-    csv += e.date+","+(e.time||"")+","+(e.counterPartyId||"-")+',"'+(e.remark||"").replace(/"/g,'""')+'",'+e.amount+","+(e.amount<0?Math.abs(e.amount):"")+","+(e.amount>0?e.amount:"")+","+run+"\n";
-  }
-  downloadBlob(new Blob([csv], { type:"text/csv" }), "ledger_"+STATE.selectedParty+".csv");
-}
-
-function downloadBlob(blob, name){
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement("a");
-  a.href=url; a.download=name; a.style.display="none";
-  document.body.appendChild(a); a.click();
-  setTimeout(function(){ a.remove(); URL.revokeObjectURL(url); }, 1500);
-}
-
-/* ========== MODALS ========== */
-function showFRModal(){
-  var T = THEMES[STATE.theme] || THEMES.ocean;
-  var filtered = STATE.finals.filter(function(g){ return g.partyId===STATE.selectedParty; });
-  filtered.sort(function(a,b){ return (a.createdAt||0)-(b.createdAt||0); });
-  var run = 0, rows = "";
-  for(var i=0;i<filtered.length;i++){
-    var g = filtered[i];
-    for(var j=0;j<g.entries.length;j++){
-      var e = g.entries[j];
-      var isCF = e.carryForward===true;
-      if(!isCF) run += e.amount;
-      rows += '<tr class="border-t'+(isCF?" bg-amber-50":"")+'">'+
-        '<td class="py-1 px-2.5 font-mono text-[12px]">'+dmy(e.date)+'</td>'+
-        '<td class="py-1 px-2.5 font-bold">'+esc(isCF?"B/F":(e.counterPartyId||"-"))+'</td>'+
-        '<td class="py-1 px-2.5">'+esc(isCF?"Opening":(e.remark||"-"))+'</td>'+
-        '<td class="py-1 px-2 text-right font-mono">'+((!isCF&&e.amount<0)?fmtAbs(e.amount):"-")+'</td>'+
-        '<td class="py-1 px-2 text-right font-mono">'+((!isCF&&e.amount>0)?fmt(e.amount):"-")+'</td>'+
-        '<td class="py-1 px-2 text-right font-mono font-black '+(run<0?"text-red-600":"text-green-600")+'">'+fmt(run)+'</td>'+
-      '</tr>';
-    }
-  }
-  if(!rows) rows = '<tr><td colspan="6" class="p-8 text-center opacity-60">No FINAL records</td></tr>';
-  var groups = filtered.length, rowCount = filtered.reduce(function(a,g){ return a+(g.entries||[]).length; },0);
-  var closing = filtered.length>0 ? (filtered[filtered.length-1].balance||0) : 0;
-  var modal = document.createElement("div");
-  modal.className = "fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4";
-  modal.onclick = function(e){ if(e.target===this) this.remove(); };
-  modal.innerHTML = '<div class="w-full max-w-[1100px] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] '+T.card+'">'+
-    '<div class="px-4 py-3 flex justify-between items-center" style="background:linear-gradient(90deg,#0369a1,#0891b2)">'+
-      '<div class="text-white"><div class="font-black text-[15px]">FINAL REPORT - '+esc(STATE.selectedParty)+'</div>'+
-      '<div class="text-[11px] opacity-90 font-bold">Groups: '+groups+' | Rows: '+rowCount+' | Closing: '+fmt(closing)+'</div></div>'+
-      '<button id="fr-close" class="w-8 h-8 rounded-lg bg-white/20 text-white font-black">X</button>'+
-    '</div>'+
-    '<div class="overflow-auto flex-1"><table class="w-full" style="font-size:13px"><thead class="sticky top-0 '+T.tblHeader+'"><tr>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Date</th>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Counter</th>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Remark</th>'+
-      '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Debit</th>'+
-      '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Credit</th>'+
-      '<th class="py-1.5 px-2.5 text-right font-black text-[11px] uppercase">Balance</th>'+
-    '</tr></thead><tbody>'+rows+'</tbody></table></div>'+
-  '</div>';
-  document.body.appendChild(modal);
-  $("fr-close").onclick = function(){ modal.remove(); };
-}
-
-function showHistoryModal(){
-  var T = THEMES[STATE.theme] || THEMES.ocean;
-  var rows = "";
-  var list = STATE.historyFilter==="All" ? STATE.history : STATE.history.filter(function(x){ return x.partyId===STATE.historyFilter||x.oldVal===STATE.historyFilter||x.newVal===STATE.historyFilter; });
-  for(var i=0;i<list.length;i++){
-    var x = list[i];
-    rows += '<tr class="border-t"><td class="py-1.5 px-2.5 font-mono text-[12px]">'+esc(x.dateDisplay)+'</td>'+
-      '<td class="py-1.5 px-2.5 font-bold">'+esc(x.timeDisplay)+'</td>'+
-      '<td class="py-1.5 px-2.5"><span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black">'+esc(x.action)+'</span></td>'+
-      '<td class="py-1.5 px-2.5 font-black">'+esc(x.partyId)+'</td>'+
-      '<td class="py-1.5 px-2.5 font-mono text-[12px]">'+esc(x.oldVal)+'</td>'+
-      '<td class="py-1.5 px-2.5 font-mono text-[12px]">'+esc(x.newVal)+'</td>'+
-      '<td class="py-1.5 px-2.5">'+esc(x.remark)+'</td></tr>';
-  }
-  if(!rows) rows = '<tr><td colspan="7" class="p-8 text-center opacity-60">No history</td></tr>';
-  var popts = '<option>All</option>';
-  for(var k=0;k<STATE.parties.length;k++) popts += '<option'+(STATE.parties[k].id===STATE.historyFilter?" selected":"")+'>'+esc(STATE.parties[k].id)+'</option>';
-  var modal = document.createElement("div");
-  modal.className = "fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4";
-  modal.onclick = function(e){ if(e.target===this) this.remove(); };
-  modal.innerHTML = '<div class="w-full max-w-5xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] '+T.card+'">'+
-    '<div class="bg-gray-900 text-white px-4 py-3 flex justify-between"><div class="font-black text-[14px]">PARTY HISTORY</div>'+
-    '<button id="h-close" class="w-7 h-7 rounded bg-white/20 font-bold">X</button></div>'+
-    '<div class="px-3 py-2 border-b flex justify-between"><select id="h-filter" class="h-8 rounded border px-2 text-[12px] font-bold '+T.input+'">'+popts+'</select></div>'+
-    '<div class="overflow-auto flex-1"><table class="w-full" style="font-size:13px"><thead class="'+T.tblHeader+'"><tr>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Date</th>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Time</th>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Action</th>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Party</th>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Old</th>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">New</th>'+
-      '<th class="py-1.5 px-2.5 text-left font-black text-[11px] uppercase">Remark</th>'+
-    '</tr></thead><tbody>'+rows+'</tbody></table></div>'+
-  '</div>';
-  document.body.appendChild(modal);
-  $("h-close").onclick = function(){ modal.remove(); };
-  $("h-filter").onchange = function(){ STATE.historyFilter = this.value; modal.remove(); showHistoryModal(); };
-}
-
-/* INIT */
-sb.auth.getSession().then(function(r){
-  if(r.data.session){
-    STATE.session = r.data.session;
-    loadAll();
-  } else {
-    STATE.ready = true;
-    render();
-  }
-});
-sb.auth.onAuthStateChange(function(evt, sess){
-  if(evt === "SIGNED_OUT"){
-    STATE.session = null; STATE.profile = null; STATE.ready = true; render();
-  }
-});
+ReactDOM.createRoot(document.getElementById("root")).render(h(MainApp));
 </script>
 </body>
 </html>
