@@ -1436,8 +1436,9 @@ function MainApp() {
   }, []);
 
   async function loadAll(sess) {
+    setReady(false);
+    setBootMsg("Loading profile...");
     try {
-      setBootMsg("Loading profile...");
       const { data: prof } = await sb.from("profiles").select("*").eq("id", sess.user.id).single();
       if (!prof || !prof.company_id) { await sb.auth.signOut(); setReady(true); return; }
       setCompanyId(prof.company_id);
@@ -1481,7 +1482,7 @@ function MainApp() {
           } catch(e) { console.warn("Could not push local to cloud:", e); }
         }, 2000);
       } else if (st && st.state) {
-        console.log("Using CLOUD state (no timestamps)");
+        console.log("Using CLOUD state (timestamps equal)");
         setCloudState(st.state);
       } else {
         console.log("Using FALLBACK state");
