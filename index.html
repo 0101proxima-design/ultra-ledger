@@ -436,7 +436,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   useEffect(() => {
     if (skipSaveRef.current) return;
-    const snap = { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
+    const snap = { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, lastModified: Date.now() };
     try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
   }, [parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, companyId]);
 
@@ -453,7 +453,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   useEffect(() => {
     const handleUnload = () => {
-      const snap = Object.assign({}, stateSnapRef.current);
+      const snap = Object.assign({}, stateSnapRef.current, { lastModified: Date.now() });
       try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
       try { idbSave("state", snap); } catch(e) {}
     };
@@ -559,7 +559,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
 
   const safeLogout = async () => {
     try {
-      const snap = { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
+      const snap = { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter, lastModified: Date.now() };
       try { localStorage.setItem("ul_state_" + (companyId || "default"), JSON.stringify(snap)); } catch(e) {}
       if (saveCloud) { await saveCloud(snap); }
       try { await idbSave("cache_" + (companyId || "default"), snap); } catch(e) {}
@@ -1448,20 +1448,44 @@ function MainApp() {
       const { data: st, error: stErr } = await sb.from("company_state").select("state").eq("company_id", prof.company_id).maybeSingle();
       if (stErr) console.error("LOAD FAILED:", stErr);
 
-      if (st && st.state) {
-        console.log("Cloud state loaded OK");
+      let cached = null;
+      try {
+        const raw = localStorage.getItem("ul_state_" + prof.company_id);
+        if (raw) cached = JSON.parse(raw);
+      } catch(e) {}
+      if (!cached) {
+        cached = await idbLoad("cache_" + prof.company_id);
+      }
+
+      const cloudTime = (st && st.state && st.state.lastModified) || 0;
+      const localTime = (cached && cached.lastModified) || 0;
+
+      console.log("Cloud time:", cloudTime ? new Date(cloudTime).toLocaleString() : "none", "| Local time:", localTime ? new Date(localTime).toLocaleString() : "none");
+
+      if (cloudTime > localTime && st && st.state) {
+        console.log("Using CLOUD state (newer)");
+        setCloudState(st.state);
+      } else if (localTime > cloudTime && cached) {
+        console.log("Using LOCAL state (newer) — will sync to cloud");
+        setCloudState(cached);
+        setTimeout(async () => {
+          try {
+            const { error: pushErr } = await sb.from("company_state").upsert({
+              company_id: prof.company_id,
+              state: cached,
+              updated_at: new Date().toISOString(),
+              updated_by: sess.user.id
+            }, { onConflict: "company_id" });
+            if (pushErr) console.warn("Push to cloud failed:", pushErr);
+            else console.log("Local state pushed to cloud");
+          } catch(e) { console.warn("Could not push local to cloud:", e); }
+        }, 2000);
+      } else if (st && st.state) {
+        console.log("Using CLOUD state (no timestamps)");
         setCloudState(st.state);
       } else {
-        console.warn("No cloud state found, using fallback");
-        let cached = null;
-        try {
-          const raw = localStorage.getItem("ul_state_" + prof.company_id);
-          if (raw) cached = JSON.parse(raw);
-        } catch(e) {}
-        if (!cached) {
-          cached = await idbLoad("cache_" + prof.company_id);
-        }
-        setCloudState(cached || { parties: SEED_PARTIES, ledgers: SEED_OPEN, finals: [], history: [], companyName: "", theme: "ocean", pin: "", lastBackupTime: 0 });
+        console.log("Using FALLBACK state");
+        setCloudState(cached || { parties: SEED_PARTIES, ledgers: SEED_OPEN, finals: [], history: [], companyName: "", theme: "ocean", pin: "", lastBackupTime: 0, lastModified: Date.now() });
       }
       setReady(true);
     } catch (e) {
@@ -1473,29 +1497,35 @@ function MainApp() {
   async function saveCloud(newState) {
     if (!companyId || !session) return;
     setSaveStatus("saving");
-    try {
-      const { data, error } = await sb.from("company_state").upsert({
-        company_id: companyId,
-        state: newState,
-        updated_at: new Date().toISOString(),
-        updated_by: session.user.id
-      }, { onConflict: "company_id" });
 
-      if (error) {
-        console.error("SAVE FAILED:", error);
-        setSaveStatus("error");
-        alert("CLOUD SAVE FAILED!\n\nMessage: " + error.message + "\nCode: " + (error.code || "N/A") + "\nDetails: " + (error.details || "N/A") + "\nHint: " + (error.hint || "N/A"));
+    const stateWithTime = Object.assign({}, newState, { lastModified: Date.now() });
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const { data, error } = await sb.from("company_state").upsert({
+          company_id: companyId,
+          state: stateWithTime,
+          updated_at: new Date().toISOString(),
+          updated_by: session.user.id
+        }, { onConflict: "company_id" });
+
+        if (error) { lastError = error; throw error; }
+
+        console.log("Cloud save OK (attempt " + attempt + ")");
+        setSaveStatus("saved");
+        try { await idbSave("cache_" + companyId, stateWithTime); } catch(e) {}
+        setTimeout(() => setSaveStatus("idle"), 1500);
         return;
+      } catch (e) {
+        lastError = e;
+        console.warn("Save attempt " + attempt + " failed:", e.message || e);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
       }
-
-      setSaveStatus("saved");
-      try { await idbSave("cache_" + companyId, newState); } catch(e) {}
-      setTimeout(() => setSaveStatus("idle"), 1500);
-    } catch (e) {
-      console.error("Save exception:", e);
-      setSaveStatus("error");
-      alert("SAVE EXCEPTION: " + e.message);
     }
+
+    console.error("SAVE FAILED after 3 attempts:", lastError);
+    setSaveStatus("error");
   }
 
   if (!ready) return h("div", { className:"min-h-screen flex items-center justify-center bg-slate-50" },
