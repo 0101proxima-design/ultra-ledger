@@ -184,22 +184,18 @@ function Dashboard({ session, profile }) {
 
   async function load() {
     setLoading(true);
-    // Companies (all, including deleted)
     const { data: comps } = await sb.from("companies").select("*").order("created_at", { ascending: false });
     setCompanies(comps || []);
 
-    // Profiles
     const { data: profs } = await sb.from("profiles").select("*").not("company_id", "is", null);
     setUsersData(profs || []);
     const counts = {};
     (profs || []).forEach(p => { counts[p.company_id] = (counts[p.company_id] || 0) + 1; });
     setUserCounts(counts);
 
-    // Notices
     const { data: ntcs } = await sb.from("broadcast_notices").select("*").order("created_at", { ascending: false });
     setNotices(ntcs || []);
 
-    // Payments
     const { data: pays } = await sb.from("payments").select("*").order("paid_at", { ascending: false });
     setPayments(pays || []);
 
@@ -220,7 +216,6 @@ function Dashboard({ session, profile }) {
     setToast("PIN set successfully ✓");
   }
 
-  // Stats
   const activeCompanies = companies.filter(c => c.active && !c.deleted_at).length;
   const deletedCompanies = companies.filter(c => c.deleted_at).length;
   const totalUsers = usersData.length;
@@ -232,88 +227,87 @@ function Dashboard({ session, profile }) {
     return d !== null && d >= 0 && d <= 30;
   });
 
-  return h("div", { className: "min-h-screen bg-slate-100 flex flex-col" },
-    // Header
-    h("header", { className: "bg-gradient-to-r from-purple-700 to-pink-700 text-white shadow-md sticky top-0 z-30" },
-      h("div", { className: "px-6 h-16 flex items-center justify-between flex-wrap gap-2" },
-        h("div", { className: "flex items-center gap-3" },
-          h("div", { className: "text-[28px]" }, "🔐"),
-          h("div", null,
-            h("div", { className: "text-[16px] font-black tracking-tight" }, "SUPER ADMIN"),
-            h("div", { className: "text-[10px] font-bold opacity-80 uppercase tracking-widest" }, "Ultra Ledger Owner Panel"))),
-        h("div", { className: "flex items-center gap-2 flex-wrap" },
-          h("button", { onClick: () => setShowAnalytics(true),
-            className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "📊 Analytics"),
-          h("button", { onClick: () => setShowBroadcast(true),
-            className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "📢 Broadcast"),
-          h("button", { onClick: () => setShowDeleted(v => !v),
-            className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, showDeleted ? "👁️ Active Only" : `🗑️ Deleted (${deletedCompanies})`),
-          pinSet && h("button", { onClick: () => setShowPinSetup(true),
-            className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "🔑 PIN"),
-          h("button", { onClick: logout,
-            className: "h-9 px-4 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "Logout")))),
+  const header = h("header", { className: "bg-gradient-to-r from-purple-700 to-pink-700 text-white shadow-md sticky top-0 z-30" },
+    h("div", { className: "px-6 h-16 flex items-center justify-between flex-wrap gap-2" },
+      h("div", { className: "flex items-center gap-3" },
+        h("div", { className: "text-[28px]" }, "🔐"),
+        h("div", null,
+          h("div", { className: "text-[16px] font-black tracking-tight" }, "SUPER ADMIN"),
+          h("div", { className: "text-[10px] font-bold opacity-80 uppercase tracking-widest" }, "Ultra Ledger Owner Panel"))),
+      h("div", { className: "flex items-center gap-2 flex-wrap" },
+        h("button", { onClick: () => setShowAnalytics(true),
+          className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "📊 Analytics"),
+        h("button", { onClick: () => setShowBroadcast(true),
+          className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "📢 Broadcast"),
+        h("button", { onClick: () => setShowDeleted(v => !v),
+          className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, showDeleted ? "👁️ Active Only" : "🗑️ Deleted (" + deletedCompanies + ")"),
+        pinSet && h("button", { onClick: () => setShowPinSetup(true),
+          className: "h-9 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "🔑 PIN"),
+        h("button", { onClick: logout,
+          className: "h-9 px-4 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] font-black" }, "Logout"))));
 
-    h("main", { className: "flex-1 p-6 max-w-7xl w-full mx-auto" },
+  const main = h("main", { className: "flex-1 p-6 max-w-7xl w-full mx-auto" },
+    expiringSoon.length > 0 && h("div", { className: "mb-4 p-4 rounded-2xl bg-amber-50 border-2 border-amber-300" },
+      h("div", { className: "flex items-center gap-3" },
+        h("span", { className: "text-[24px]" }, "⚠️"),
+        h("div", { className: "flex-1" },
+          h("div", { className: "text-[14px] font-black text-amber-900" }, expiringSoon.length + " compan" + (expiringSoon.length === 1 ? "y" : "ies") + " expiring soon!"),
+          h("div", { className: "text-[12px] font-bold text-amber-700 mt-0.5" },
+            expiringSoon.map(c => c.name + " (" + daysUntil(c.expiry_date) + "d)").join(" • "))))),
 
-      // Expiring soon alert
-      expiringSoon.length > 0 && h("div", { className: "mb-4 p-4 rounded-2xl bg-amber-50 border-2 border-amber-300" },
-        h("div", { className: "flex items-center gap-3" },
-          h("span", { className: "text-[24px]" }, "⚠️"),
-          h("div", { className: "flex-1" },
-            h("div", { className: "text-[14px] font-black text-amber-900" }, expiringSoon.length + " compan" + (expiringSoon.length === 1 ? "y" : "ies") + " expiring soon!"),
-            h("div", { className: "text-[12px] font-bold text-amber-700 mt-0.5" },
-              expiringSoon.map(c => c.name + " (" + daysUntil(c.expiry_date) + "d)").join(" • "))))),
+    h("div", { className: "grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6" },
+      h(StatCard, { label: "Total Companies", value: companies.length, color: "purple", icon: "🏢" }),
+      h(StatCard, { label: "Active", value: activeCompanies, color: "green", icon: "✅" }),
+      h(StatCard, { label: "Total Users", value: totalUsers, color: "pink", icon: "👥" }),
+      h(StatCard, { label: "Active Users", value: activeUsers, color: "cyan", icon: "🟢" }),
+      h(StatCard, { label: "Revenue", value: "₹" + totalRevenue.toLocaleString("en-IN"), color: "emerald", icon: "💰" }),
+      h(StatCard, { label: "Deleted", value: deletedCompanies, color: "red", icon: "🗑️" })),
 
-      // Stats grid
-      h("div", { className: "grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6" },
-        h(StatCard, { label: "Total Companies", value: companies.length, color: "purple", icon: "🏢" }),
-        h(StatCard, { label: "Active", value: activeCompanies, color: "green", icon: "✅" }),
-        h(StatCard, { label: "Total Users", value: totalUsers, color: "pink", icon: "👥" }),
-        h(StatCard, { label: "Active Users", value: activeUsers, color: "cyan", icon: "🟢" }),
-        h(StatCard, { label: "Revenue", value: "₹" + totalRevenue.toLocaleString("en-IN"), color: "emerald", icon: "💰" }),
-        h(StatCard, { label: "Deleted", value: deletedCompanies, color: "red", icon: "🗑️" })),
+    h("div", { className: "flex items-center justify-between mb-4" },
+      h("h2", { className: "text-[18px] font-black text-slate-800" },
+        showDeleted ? "🗑️ Deleted Companies (Recoverable)" : "Companies"),
+      !showDeleted && h("button", { onClick: () => setShowAddCompany(true),
+        className: "h-10 px-5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px]" },
+        "+ Add Company")),
 
-      // Companies header
-      h("div", { className: "flex items-center justify-between mb-4" },
-        h("h2", { className: "text-[18px] font-black text-slate-800" },
-          showDeleted ? "🗑️ Deleted Companies (Recoverable)" : "Companies"),
-        !showDeleted && h("button", { onClick: () => setShowAddCompany(true),
-          className: "h-10 px-5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px]" },
-          "+ Add Company")),
+    loading ? h("div", { className: "text-center py-10 text-slate-500 font-bold" }, "Loading...") :
+    companies.length === 0 ? h("div", { className: "bg-white rounded-2xl border border-slate-200 py-16 text-center" },
+      h("div", { className: "text-[48px] mb-3" }, "🏢"),
+      h("div", { className: "text-[15px] font-black text-slate-700" }, "Koi company nahi hai"),
+      h("div", { className: "text-[12px] font-bold text-slate-500 mt-1" }, "+ Add Company dabao")) :
+    h("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+      companies
+        .filter(c => showDeleted ? c.deleted_at : !c.deleted_at)
+        .map(c => h(CompanyCard, {
+          key: c.id, company: c,
+          userCount: userCounts[c.id] || 0,
+          companyUsers: usersData.filter(u => u.company_id === c.id),
+          companyPayments: payments.filter(p => p.company_id === c.id),
+          pin, onRefresh: load, setToast,
+          onOpen: () => setSelectedCompany(c),
+          onEdit: () => setEditCompany(c),
+          isDeleted: !!c.deleted_at
+        })))
+  );
 
-      // List
-      loading ? h("div", { className: "text-center py-10 text-slate-500 font-bold" }, "Loading...") :
-      companies.length === 0 ? h("div", { className: "bg-white rounded-2xl border border-slate-200 py-16 text-center" },
-        h("div", { className: "text-[48px] mb-3" }, "🏢"),
-        h("div", { className: "text-[15px] font-black text-slate-700" }, "Koi company nahi hai"),
-        h("div", { className: "text-[12px] font-bold text-slate-500 mt-1" }, "+ Add Company dabao")) :
-      h("div", { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
-        companies
-          .filter(c => showDeleted ? c.deleted_at : !c.deleted_at)
-          .map(c => h(CompanyCard, {
-            key: c.id, company: c,
-            userCount: userCounts[c.id] || 0,
-            companyUsers: usersData.filter(u => u.company_id === c.id),
-            companyPayments: payments.filter(p => p.company_id === c.id),
-            pin, onRefresh: load, setToast,
-            onOpen: () => setSelectedCompany(c),
-            onEdit: () => setEditCompany(c),
-            isDeleted: !!c.deleted_at
-          }))),
-
-    // Modals
-    showAddCompany && h(AddCompanyModal, { onClose: () => setShowAddCompany(false), onCreated: () => { load(); setToast("Company created ✓"); } }),
-    editCompany && h(EditCompanyModal, { company: editCompany, pin, onClose: () => setEditCompany(null), onUpdated: () => { load(); setToast("Company updated ✓"); } }),
+  const modals = [
+    showAddCompany && h(AddCompanyModal, { key: "addCo", onClose: () => setShowAddCompany(false), onCreated: () => { load(); setToast("Company created ✓"); } }),
+    editCompany && h(EditCompanyModal, { key: "editCo", company: editCompany, pin, onClose: () => setEditCompany(null), onUpdated: () => { load(); setToast("Company updated ✓"); } }),
     selectedCompany && h(CompanyDetailModal, {
-      company: selectedCompany, pin, session,
+      key: "detail", company: selectedCompany, pin, session,
       onClose: () => setSelectedCompany(null),
       onRefresh: load,
       setToast
     }),
-    showBroadcast && h(BroadcastModal, { notices, onClose: () => setShowBroadcast(false), onRefresh: load, setToast }),
-    showAnalytics && h(AnalyticsModal, { companies, users: usersData, payments, notices, onClose: () => setShowAnalytics(false) }),
-    showPinSetup && h(PinSetupModal, { pinInput, setPinInput, savePin, onClose: () => pinSet && setShowPinSetup(false), isFirst: !pinSet }),
+    showBroadcast && h(BroadcastModal, { key: "bc", notices, onClose: () => setShowBroadcast(false), onRefresh: load, setToast }),
+    showAnalytics && h(AnalyticsModal, { key: "an", companies, users: usersData, payments, notices, onClose: () => setShowAnalytics(false) }),
+    showPinSetup && h(PinSetupModal, { key: "pin", pinInput, setPinInput, savePin, onClose: () => pinSet && setShowPinSetup(false), isFirst: !pinSet })
+  ];
 
+  return h("div", { className: "min-h-screen bg-slate-100 flex flex-col" },
+    header,
+    main,
+    modals,
     toast && h("div", { className: "fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-full bg-black text-white text-[13px] font-black shadow-2xl" }, "✓ " + toast)
   );
 }
@@ -341,10 +335,10 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
 
   async function deleteCompany() {
     if (userCount > 0) {
-      if (!confirm(`⚠️ Is company me ${userCount} users hain!\n\nContinue?`)) return;
+      if (!confirm("⚠️ Is company me " + userCount + " users hain!\n\nContinue?")) return;
     }
-    if (!confirm(`⚠️ SOFT DELETE COMPANY\n\nCompany: ${company.name}\nCode: ${company.code}\n\n📥 Pehle AUTO-BACKUP download hoga.\n🗑️ Company 30 din tak recover ho sakti hai.`)) return;
-    const typed = prompt(`Type company code to confirm:\n\n${company.code}`);
+    if (!confirm("⚠️ SOFT DELETE COMPANY\n\nCompany: " + company.name + "\nCode: " + company.code + "\n\n📥 Pehle AUTO-BACKUP download hoga.\n🗑️ Company 30 din tak recover ho sakti hai.")) return;
+    const typed = prompt("Type company code to confirm:\n\n" + company.code);
     if (typed === null) return;
     if (typed.trim().toUpperCase() !== company.code.toUpperCase()) { alert("❌ Code mismatch. Cancelled."); return; }
     const enteredPin = prompt("🔐 Enter your admin PIN:");
@@ -352,7 +346,6 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
 
     setBusy(true);
     try {
-      // 1. Auto-backup: state + profiles + payments
       const { data: state } = await sb.from("company_state").select("state").eq("company_id", company.id).maybeSingle();
       const backup = {
         company, users: companyUsers, payments: companyPayments,
@@ -363,7 +356,6 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
       downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }),
         "auto-backup_" + company.code + "_" + todayISO() + ".json");
 
-      // 2. Save to deleted_backups table
       await sb.from("deleted_backups").insert({
         company_id: company.id,
         company_name: company.name,
@@ -373,7 +365,6 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
         reason: "Soft deleted from admin panel"
       });
 
-      // 3. Soft delete
       const { error } = await sb.from("companies").update({
         deleted_at: new Date().toISOString(),
         active: false
@@ -388,7 +379,7 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
   }
 
   async function restoreCompany() {
-    if (!confirm(`♻️ RESTORE COMPANY\n\nCompany: ${company.name}\n\nYe company aur uske saare users active ho jayenge.\nContinue?`)) return;
+    if (!confirm("♻️ RESTORE COMPANY\n\nCompany: " + company.name + "\n\nYe company aur uske saare users active ho jayenge.\nContinue?")) return;
     const enteredPin = prompt("🔐 Enter admin PIN:");
     if (enteredPin !== pin) { alert("❌ Wrong PIN"); return; }
 
@@ -407,7 +398,7 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
 
   async function toggleActive() {
     const nextState = !company.active;
-    if (!confirm(`${nextState ? "✅ ACTIVATE" : "🚫 DEACTIVATE"} COMPANY\n\n${company.name}\n\n${nextState ? "Users login kar payenge." : "Users login NAHI kar payenge. Data safe rahega."}`)) return;
+    if (!confirm((nextState ? "✅ ACTIVATE" : "🚫 DEACTIVATE") + " COMPANY\n\n" + company.name + "\n\n" + (nextState ? "Users login kar payenge." : "Users login NAHI kar payenge. Data safe rahega."))) return;
     const enteredPin = prompt("🔐 Enter admin PIN:");
     if (enteredPin !== pin) { alert("❌ Wrong PIN"); return; }
 
@@ -421,7 +412,6 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
     finally { setBusy(false); }
   }
 
-  // Deleted card
   if (isDeleted) {
     return h("div", { className: "bg-red-50 rounded-2xl border-2 border-dashed border-red-300 overflow-hidden" },
       h("div", { className: "p-5" },
@@ -440,7 +430,6 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
             busy ? "..." : "♻️ Restore Company"))));
   }
 
-  // Active card
   return h("div", { className: "bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition" },
     h("div", { className: "p-5" },
       h("div", { className: "flex items-start justify-between mb-4" },
@@ -459,7 +448,6 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
           isExpired && h("span", { className: "px-2 py-0.5 rounded-full text-[9px] font-black bg-red-100 text-red-700 border border-red-300" }, "EXPIRED"),
           !isExpired && expiryDays !== null && expiryDays <= 30 && h("span", { className: "px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-700 border border-amber-300" }, expiryDays + "d left"))),
 
-      // Stats row
       h("div", { className: "grid grid-cols-3 gap-2 mb-3" },
         h("div", { className: "p-2 rounded-lg bg-slate-50 border border-slate-200" },
           h("div", { className: "text-[9px] font-black text-slate-500 uppercase" }, "Users"),
@@ -472,7 +460,6 @@ function CompanyCard({ company, userCount, companyUsers, companyPayments, pin, o
           h("div", { className: "text-[11px] font-black " + (isExpired ? "text-red-600" : "text-slate-800") },
             company.expiry_date ? dmy(company.expiry_date) : "—"))),
 
-      // Buttons
       h("div", { className: "flex gap-2 flex-wrap" },
         h("button", { onClick: onOpen,
           className: "flex-1 min-w-[100px] h-10 rounded-xl bg-slate-900 hover:bg-black text-white font-black text-[11px]" },
@@ -615,8 +602,8 @@ function CompanyDetailModal({ company, pin, session, onClose, onRefresh, setToas
   useEffect(() => { loadUsers(); }, [company.id]);
 
   async function deleteUser(user) {
-    if (!confirm(`⚠️ SOFT DELETE USER\n\n${user.full_name || user.username} (@${user.username})\n\nYe user deactivate ho jayega aur 30 din tak recoverable rahega.`)) return;
-    const typed = prompt(`Type username to confirm:\n\n${user.username}`);
+    if (!confirm("⚠️ SOFT DELETE USER\n\n" + (user.full_name || user.username) + " (@" + user.username + ")\n\nYe user deactivate ho jayega aur 30 din tak recoverable rahega.")) return;
+    const typed = prompt("Type username to confirm:\n\n" + user.username);
     if (typed === null || typed.trim() !== user.username) { alert("❌ Mismatch"); return; }
     const enteredPin = prompt("🔐 Enter admin PIN:");
     if (enteredPin !== pin) { alert("❌ Wrong PIN"); return; }
@@ -625,37 +612,114 @@ function CompanyDetailModal({ company, pin, session, onClose, onRefresh, setToas
       deleted_at: new Date().toISOString(), active: false
     }).eq("id", user.id);
     if (error) { alert("Error: " + error.message); return; }
-    setToast(`User @${user.username} soft-deleted`);
+    setToast("User @" + user.username + " soft-deleted");
     loadUsers(); onRefresh();
   }
 
   async function toggleUserActive(user) {
     const next = user.active === false;
-    if (!confirm(`${next ? "✅ ACTIVATE" : "🚫 DEACTIVATE"} USER\n\n@${user.username}\n\n${next ? "Login kar payega." : "Login NAHI kar payega. Data safe."}`)) return;
+    if (!confirm((next ? "✅ ACTIVATE" : "🚫 DEACTIVATE") + " USER\n\n@" + user.username + "\n\n" + (next ? "Login kar payega." : "Login NAHI kar payega. Data safe."))) return;
     const enteredPin = prompt("🔐 Enter admin PIN:");
     if (enteredPin !== pin) { alert("❌ Wrong PIN"); return; }
 
     const { error } = await sb.from("profiles").update({ active: next }).eq("id", user.id);
     if (error) { alert("Error: " + error.message); return; }
-    setToast(`User @${user.username} ${next ? "activated" : "deactivated"}`);
+    setToast("User @" + user.username + " " + (next ? "activated" : "deactivated"));
     loadUsers(); onRefresh();
   }
 
   async function changeRole(user, newRole) {
     if (user.role === newRole) return;
-    if (!confirm(`🔄 Change role\n\n@${user.username}: ${user.role} → ${newRole}\n\nConfirm?`)) return;
+    if (!confirm("🔄 Change role\n\n@" + user.username + ": " + user.role + " → " + newRole + "\n\nConfirm?")) return;
     const enteredPin = prompt("🔐 Enter admin PIN:");
     if (enteredPin !== pin) { alert("❌ Wrong PIN"); return; }
 
     const { error } = await sb.from("profiles").update({ role: newRole }).eq("id", user.id);
     if (error) { alert("Error: " + error.message); return; }
-    setToast(`Role changed: @${user.username} → ${newRole}`);
+    setToast("Role changed: @" + user.username + " → " + newRole);
     loadUsers();
   }
 
   const canAdd = users.length < company.max_users;
   const totalPaid = payments.reduce((a, p) => a + Number(p.amount || 0), 0);
-  const lastPayment = payments[0];
+
+  const userRows = users.map(u => {
+    const isActive = u.active !== false;
+    return h("div", { key: u.id,
+      className: "p-4 rounded-xl border flex items-center justify-between flex-wrap gap-2 " + (isActive ? "bg-white border-slate-200" : "bg-red-50 border-red-200") },
+      h("div", { className: "flex items-center gap-3" },
+        h("div", { className: "w-11 h-11 rounded-full flex items-center justify-center text-white font-black text-[14px] " +
+          (u.role === "admin" ? "bg-gradient-to-br from-purple-500 to-pink-500" : "bg-gradient-to-br from-cyan-500 to-blue-500") },
+          (u.full_name || u.username || "?").charAt(0).toUpperCase()),
+        h("div", null,
+          h("div", { className: "text-[14px] font-black text-slate-800 flex items-center gap-2" },
+            u.full_name || u.username,
+            u.role === "admin" && h("span", { className: "text-[9px] px-1.5 py-0.5 rounded-full bg-purple-200 text-purple-800 border border-purple-300 font-black" }, "⭐ ADMIN"),
+            !isActive && h("span", { className: "text-[9px] px-1.5 py-0.5 rounded-full bg-red-200 text-red-800 border border-red-300 font-black" }, "OFF")),
+          h("div", { className: "text-[11px] font-bold text-slate-500 font-mono" },
+            "@" + u.username + " • Last login: " + timeAgo(u.last_login)))),
+      h("div", { className: "flex gap-1.5 items-center flex-wrap" },
+        h("select", {
+          value: u.role || "user",
+          onChange: e => changeRole(u, e.target.value),
+          className: "h-8 rounded-lg border border-slate-300 px-2 text-[11px] font-black bg-white"
+        },
+          h("option", { value: "user" }, "User"),
+          h("option", { value: "admin" }, "⭐ Admin")),
+        h("button", { onClick: () => setEditUser(u),
+          className: "h-8 px-2 rounded-lg border border-slate-300 text-slate-700 font-black text-[10px] hover:bg-slate-50" }, "🔑"),
+        h("button", { onClick: () => toggleUserActive(u),
+          className: "h-8 px-2 rounded-lg font-black text-[10px] border " +
+            (isActive ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-green-50 text-green-700 border-green-200") },
+          isActive ? "🚫 Off" : "✅ On"),
+        h("button", { onClick: () => deleteUser(u),
+          className: "h-8 px-2 rounded-lg border border-red-300 text-red-600 font-black text-[10px] hover:bg-red-50" }, "🗑️")));
+  });
+
+  const paymentRows = payments.map(p => h("div", { key: p.id,
+    className: "flex items-center justify-between p-3 rounded-lg bg-emerald-50 border border-emerald-200" },
+    h("div", null,
+      h("div", { className: "text-[13px] font-black text-emerald-900" }, "₹" + Number(p.amount).toLocaleString("en-IN")),
+      h("div", { className: "text-[11px] font-bold text-emerald-700" },
+        dmy(p.paid_at) + (p.paid_till ? " • Till " + dmy(p.paid_till) : "") + (p.invoice_no ? " • #" + p.invoice_no : ""))),
+    p.notes && h("div", { className: "text-[11px] font-bold text-emerald-700 max-w-[300px] truncate" }, p.notes)));
+
+  const body = h("div", { className: "flex-1 overflow-auto p-6" },
+    h("div", { className: "flex items-center justify-between mb-4" },
+      h("div", { className: "text-[13px] font-black text-slate-700" }, "👥 USERS"),
+      h("div", { className: "flex gap-2" },
+        h("button", { onClick: () => setShowPayment(true),
+          className: "h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[12px]" }, "💰 Payment"),
+        canAdd ? h("button", { onClick: () => setShowAddUser(true),
+          className: "h-9 px-4 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-black text-[12px]" }, "+ Add User") :
+          h("span", { className: "px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-black" }, "⚠️ Max users reached"))),
+
+    loading ? h("div", { className: "text-center py-10 text-slate-500 font-bold" }, "Loading...") :
+    users.length === 0 ? h("div", { className: "text-center py-16 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200" },
+      h("div", { className: "text-[40px] mb-2" }, "👤"),
+      h("div", { className: "text-[14px] font-black text-slate-600" }, "Koi user nahi"),
+      h("div", { className: "text-[12px] font-bold text-slate-500 mt-1" }, "+ Add User dabao — pehla user AUTO ADMIN banega")) :
+    h("div", { className: "space-y-2" }, userRows),
+
+    payments.length > 0 && h("div", { className: "mt-6" },
+      h("div", { className: "text-[13px] font-black text-slate-700 mb-3" }, "💰 PAYMENT HISTORY"),
+      h("div", { className: "space-y-1.5" }, paymentRows)));
+
+  const innerModals = [
+    showAddUser && h(AddUserModal, {
+      key: "addUser", company, users, onClose: () => setShowAddUser(false),
+      onCreated: (c) => { setCreds(c); loadUsers(); onRefresh(); }
+    }),
+    editUser && h(EditUserModal, {
+      key: "editUser", user: editUser, pin, onClose: () => setEditUser(null),
+      onUpdated: () => { setToast("Password reset ✓"); setEditUser(null); }
+    }),
+    showPayment && h(PaymentModal, {
+      key: "pay", company, onClose: () => setShowPayment(false),
+      onSaved: () => { loadUsers(); onRefresh(); }
+    }),
+    creds && h(CredsModal, { key: "creds", creds, company, onClose: () => setCreds(null) })
+  ];
 
   return h("div", { className: "fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4", onClick: onClose },
     h("div", { className: "w-full max-w-4xl bg-white rounded-2xl shadow-2xl max-h-[92vh] flex flex-col", onClick: e => e.stopPropagation() },
@@ -668,83 +732,8 @@ function CompanyDetailModal({ company, pin, session, onClose, onRefresh, setToas
             h("div", { className: "text-[11px] font-bold text-slate-500 font-mono" },
               "Code: " + company.code + " • " + users.length + "/" + company.max_users + " users • Paid: ₹" + totalPaid.toLocaleString("en-IN")))),
         h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 font-bold" }, "✕")),
-
-      h("div", { className: "flex-1 overflow-auto p-6" },
-        // Users section
-        h("div", { className: "flex items-center justify-between mb-4" },
-          h("div", { className: "text-[13px] font-black text-slate-700" }, "👥 USERS"),
-          h("div", { className: "flex gap-2" },
-            h("button", { onClick: () => setShowPayment(true),
-              className: "h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[12px]" }, "💰 Payment"),
-            canAdd ? h("button", { onClick: () => setShowAddUser(true),
-              className: "h-9 px-4 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-black text-[12px]" }, "+ Add User") :
-              h("span", { className: "px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-black" }, "⚠️ Max users reached"))),
-        loading ? h("div", { className: "text-center py-10 text-slate-500 font-bold" }, "Loading...") :
-        users.length === 0 ? h("div", { className: "text-center py-16 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200" },
-          h("div", { className: "text-[40px] mb-2" }, "👤"),
-          h("div", { className: "text-[14px] font-black text-slate-600" }, "Koi user nahi"),
-          h("div", { className: "text-[12px] font-bold text-slate-500 mt-1" }, "+ Add User dabao — pehla user AUTO ADMIN banega")) :
-        h("div", { className: "space-y-2" },
-          users.map(u => {
-            const isActive = u.active !== false;
-            return h("div", { key: u.id,
-              className: "p-4 rounded-xl border flex items-center justify-between flex-wrap gap-2 " + (isActive ? "bg-white border-slate-200" : "bg-red-50 border-red-200") },
-              h("div", { className: "flex items-center gap-3" },
-                h("div", { className: "w-11 h-11 rounded-full flex items-center justify-center text-white font-black text-[14px] " +
-                  (u.role === "admin" ? "bg-gradient-to-br from-purple-500 to-pink-500" : "bg-gradient-to-br from-cyan-500 to-blue-500") },
-                  (u.full_name || u.username || "?").charAt(0).toUpperCase()),
-                h("div", null,
-                  h("div", { className: "text-[14px] font-black text-slate-800 flex items-center gap-2" },
-                    u.full_name || u.username,
-                    u.role === "admin" && h("span", { className: "text-[9px] px-1.5 py-0.5 rounded-full bg-purple-200 text-purple-800 border border-purple-300 font-black" }, "⭐ ADMIN"),
-                    !isActive && h("span", { className: "text-[9px] px-1.5 py-0.5 rounded-full bg-red-200 text-red-800 border border-red-300 font-black" }, "OFF")),
-                  h("div", { className: "text-[11px] font-bold text-slate-500 font-mono" },
-                    "@" + u.username + " • Last login: " + timeAgo(u.last_login)))),
-              h("div", { className: "flex gap-1.5 items-center flex-wrap" },
-                h("select", {
-                  value: u.role || "user",
-                  onChange: e => changeRole(u, e.target.value),
-                  className: "h-8 rounded-lg border border-slate-300 px-2 text-[11px] font-black bg-white"
-                },
-                  h("option", { value: "user" }, "User"),
-                  h("option", { value: "admin" }, "⭐ Admin")),
-                h("button", { onClick: () => setEditUser(u),
-                  className: "h-8 px-2 rounded-lg border border-slate-300 text-slate-700 font-black text-[10px] hover:bg-slate-50" }, "🔑"),
-                h("button", { onClick: () => toggleUserActive(u),
-                  className: "h-8 px-2 rounded-lg font-black text-[10px] border " +
-                    (isActive ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-green-50 text-green-700 border-green-200") },
-                  isActive ? "🚫 Off" : "✅ On"),
-                h("button", { onClick: () => deleteUser(u),
-                  className: "h-8 px-2 rounded-lg border border-red-300 text-red-600 font-black text-[10px] hover:bg-red-50" }, "🗑️")));
-          })),
-
-        // Payment history
-        payments.length > 0 && h("div", { className: "mt-6" },
-          h("div", { className: "text-[13px] font-black text-slate-700 mb-3" }, "💰 PAYMENT HISTORY"),
-          h("div", { className: "space-y-1.5" },
-            payments.map(p => h("div", { key: p.id,
-              className: "flex items-center justify-between p-3 rounded-lg bg-emerald-50 border border-emerald-200" },
-              h("div", null,
-                h("div", { className: "text-[13px] font-black text-emerald-900" }, "₹" + Number(p.amount).toLocaleString("en-IN")),
-                h("div", { className: "text-[11px] font-bold text-emerald-700" },
-                  dmy(p.paid_at) + (p.paid_till ? " • Till " + dmy(p.paid_till) : "") + (p.invoice_no ? " • #" + p.invoice_no : ""))),
-              p.notes && h("div", { className: "text-[11px] font-bold text-emerald-700 max-w-[300px] truncate" }, p.notes))))))),
-
-      // Modals
-      showAddUser && h(AddUserModal, {
-        company, users, onClose: () => setShowAddUser(false),
-        onCreated: (c) => { setCreds(c); loadUsers(); onRefresh(); }
-      }),
-      editUser && h(EditUserModal, {
-        user: editUser, pin, onClose: () => setEditUser(null),
-        onUpdated: () => { setToast("Password reset ✓"); setEditUser(null); }
-      }),
-      showPayment && h(PaymentModal, {
-        company, onClose: () => setShowPayment(false),
-        onSaved: () => { loadUsers(); onRefresh(); }
-      }),
-      creds && h(CredsModal, { creds, company, onClose: () => setCreds(null) })
-    ));
+      body,
+      innerModals));
 }
 
 // ==================== ADD USER ====================
@@ -755,7 +744,6 @@ function AddUserModal({ company, users, onClose, onCreated }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  // First user = admin
   const isFirstUser = users.length === 0;
   const assignedRole = isFirstUser ? "admin" : "user";
 
@@ -966,6 +954,19 @@ function BroadcastModal({ notices, onClose, onRefresh, setToast }) {
     onRefresh();
   }
 
+  const noticeRows = notices.map(n => h("div", { key: n.id,
+    className: "p-3 rounded-lg border " + (n.active ? "bg-purple-50 border-purple-200" : "bg-slate-50 border-slate-200 opacity-60") },
+    h("div", { className: "flex items-start justify-between gap-2" },
+      h("div", { className: "flex-1" },
+        h("div", { className: "text-[13px] font-bold text-slate-800 whitespace-pre-wrap" }, n.message),
+        h("div", { className: "text-[10px] font-bold text-slate-500 mt-1" }, timeAgo(n.created_at))),
+      h("div", { className: "flex gap-1" },
+        h("button", { onClick: () => toggle(n),
+          className: "h-7 px-2 rounded text-[10px] font-black border " + (n.active ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-50 text-gray-600 border-gray-200") },
+          n.active ? "ON" : "OFF"),
+        h("button", { onClick: () => remove(n),
+          className: "h-7 px-2 rounded text-[10px] font-black border border-red-300 text-red-600 bg-white" }, "🗑️")))));
+
   return h("div", { className: "fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4", onClick: onClose },
     h("div", { className: "w-full max-w-2xl bg-white rounded-2xl shadow-2xl max-h-[90vh] flex flex-col", onClick: e => e.stopPropagation() },
       h("div", { className: "px-6 py-4 border-b border-slate-200 flex items-center justify-between" },
@@ -983,19 +984,7 @@ function BroadcastModal({ notices, onClose, onRefresh, setToast }) {
       h("div", { className: "flex-1 overflow-auto p-6" },
         h("div", { className: "text-[13px] font-black text-slate-700 mb-3" }, "📋 Notice History"),
         notices.length === 0 ? h("div", { className: "text-center py-8 text-slate-500 font-bold text-[13px]" }, "Koi notice nahi") :
-        h("div", { className: "space-y-2" },
-          notices.map(n => h("div", { key: n.id,
-            className: "p-3 rounded-lg border " + (n.active ? "bg-purple-50 border-purple-200" : "bg-slate-50 border-slate-200 opacity-60") },
-            h("div", { className: "flex items-start justify-between gap-2" },
-              h("div", { className: "flex-1" },
-                h("div", { className: "text-[13px] font-bold text-slate-800 whitespace-pre-wrap" }, n.message),
-                h("div", { className: "text-[10px] font-bold text-slate-500 mt-1" }, timeAgo(n.created_at))),
-              h("div", { className: "flex gap-1" },
-                h("button", { onClick: () => toggle(n),
-                  className: "h-7 px-2 rounded text-[10px] font-black border " + (n.active ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-50 text-gray-600 border-gray-200") },
-                  n.active ? "ON" : "OFF"),
-                h("button", { onClick: () => remove(n),
-                  className: "h-7 px-2 rounded text-[10px] font-black border border-red-300 text-red-600 bg-white" }, "🗑️"))))))));
+        h("div", { className: "space-y-2" }, noticeRows))));
 }
 
 // ==================== ANALYTICS ====================
@@ -1005,7 +994,6 @@ function AnalyticsModal({ companies, users, payments, notices, onClose }) {
   const activeUsers = users.filter(u => u.active !== false && !u.deleted_at);
   const totalRevenue = payments.reduce((a, p) => a + Number(p.amount || 0), 0);
 
-  // Revenue last 6 months
   const now = new Date();
   const months = [];
   for (let i = 5; i >= 0; i--) {
@@ -1017,15 +1005,30 @@ function AnalyticsModal({ companies, users, payments, notices, onClose }) {
   }
   const maxRev = Math.max(...months.map(m => m.total), 1);
 
-  // Company-wise users
   const topCompanies = active.slice().sort((a, b) => {
     const ca = users.filter(u => u.company_id === a.id && u.active !== false).length;
     const cb = users.filter(u => u.company_id === b.id && u.active !== false).length;
     return cb - ca;
   }).slice(0, 5);
 
-  // Total entries estimate
   const totalUsersCount = users.length;
+
+  const revBars = months.map((m, i) => h("div", { key: i, className: "flex-1 flex flex-col items-center gap-2" },
+    h("div", { className: "text-[10px] font-black text-emerald-700" }, "₹" + m.total.toLocaleString("en-IN")),
+    h("div", { className: "w-full bg-gradient-to-t from-emerald-500 to-emerald-300 rounded-t-lg transition-all",
+      style: { height: Math.max(4, (m.total / maxRev) * 120) + "px" } }),
+    h("div", { className: "text-[10px] font-black text-slate-600" }, m.label)));
+
+  const topRows = topCompanies.map(c => {
+    const count = users.filter(u => u.company_id === c.id && u.active !== false).length;
+    const pct = (count / c.max_users) * 100;
+    return h("div", { key: c.id, className: "flex items-center gap-3" },
+      h("div", { className: "w-32 text-[12px] font-black text-slate-700 truncate" }, c.name),
+      h("div", { className: "flex-1 h-6 rounded-full bg-slate-100 overflow-hidden" },
+        h("div", { className: "h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-end pr-2",
+          style: { width: Math.max(8, pct) + "%" } },
+          h("span", { className: "text-[10px] font-black text-white" }, count + "/" + c.max_users))));
+  });
 
   return h("div", { className: "fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4", onClick: onClose },
     h("div", { className: "w-full max-w-4xl bg-white rounded-2xl shadow-2xl max-h-[92vh] flex flex-col", onClick: e => e.stopPropagation() },
@@ -1035,40 +1038,21 @@ function AnalyticsModal({ companies, users, payments, notices, onClose }) {
           h("div", { className: "text-[12px] font-bold text-slate-500 mt-0.5" }, "Complete overview")),
         h("button", { onClick: onClose, className: "w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 font-bold" }, "✕")),
       h("div", { className: "flex-1 overflow-auto p-6 space-y-6" },
-
-        // Overview
         h("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-3" },
           h(StatCard, { label: "Active Companies", value: active.length, color: "green", icon: "🏢" }),
           h(StatCard, { label: "Deleted", value: deleted.length, color: "red", icon: "🗑️" }),
           h(StatCard, { label: "Total Users", value: totalUsersCount, color: "pink", icon: "👥" }),
           h(StatCard, { label: "Total Revenue", value: "₹" + totalRevenue.toLocaleString("en-IN"), color: "emerald", icon: "💰" })),
 
-        // Revenue chart
         h("div", { className: "p-5 rounded-2xl border border-slate-200" },
           h("div", { className: "text-[14px] font-black text-slate-800 mb-4" }, "📈 Revenue — Last 6 Months"),
-          h("div", { className: "flex items-end gap-3 h-40" },
-            months.map((m, i) => h("div", { key: i, className: "flex-1 flex flex-col items-center gap-2" },
-              h("div", { className: "text-[10px] font-black text-emerald-700" }, "₹" + m.total.toLocaleString("en-IN")),
-              h("div", { className: "w-full bg-gradient-to-t from-emerald-500 to-emerald-300 rounded-t-lg transition-all",
-                style: { height: Math.max(4, (m.total / maxRev) * 120) + "px" } }),
-              h("div", { className: "text-[10px] font-black text-slate-600" }, m.label))))),
+          h("div", { className: "flex items-end gap-3 h-40" }, revBars)),
 
-        // Top companies
         h("div", { className: "p-5 rounded-2xl border border-slate-200" },
           h("div", { className: "text-[14px] font-black text-slate-800 mb-4" }, "🏆 Top Companies by Users"),
           topCompanies.length === 0 ? h("div", { className: "text-center py-4 text-slate-500 font-bold text-[12px]" }, "No data") :
-          h("div", { className: "space-y-2" },
-            topCompanies.map(c => {
-              const count = users.filter(u => u.company_id === c.id && u.active !== false).length;
-              const pct = (count / c.max_users) * 100;
-              return h("div", { key: c.id, className: "flex items-center gap-3" },
-                h("div", { className: "w-32 text-[12px] font-black text-slate-700 truncate" }, c.name),
-                h("div", { className: "flex-1 h-6 rounded-full bg-slate-100 overflow-hidden" },
-                  h("div", { className: "h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-end pr-2",
-                    style: { width: Math.max(8, pct) + "%" } },
-                    h("span", { className: "text-[10px] font-black text-white" }, count + "/" + c.max_users))))),
+          h("div", { className: "space-y-2" }, topRows)),
 
-        // Storage/Usage
         h("div", { className: "grid grid-cols-2 md:grid-cols-4 gap-3" },
           h(StatCard, { label: "Broadcasts", value: notices.length, color: "purple", icon: "📢" }),
           h(StatCard, { label: "Payments Log", value: payments.length, color: "emerald", icon: "💳" }),
@@ -1078,7 +1062,7 @@ function AnalyticsModal({ companies, users, payments, notices, onClose }) {
 
 // ==================== CREDS MODAL ====================
 function CredsModal({ creds, company, onClose }) {
-  const txt = `ULTRA LEDGER Login\n\nCompany: ${creds.company}\nRole: ${creds.role === "admin" ? "⭐ Admin" : "User"}\nUsername: ${creds.username}\nPassword: ${creds.password}\n\nLogin URL: https://0101proxima-design.github.io/ultra-ledger/`;
+  const txt = "ULTRA LEDGER Login\n\nCompany: " + creds.company + "\nRole: " + (creds.role === "admin" ? "⭐ Admin" : "User") + "\nUsername: " + creds.username + "\nPassword: " + creds.password + "\n\nLogin URL: https://0101proxima-design.github.io/ultra-ledger/";
 
   function copy() { navigator.clipboard.writeText(txt); alert("Copied!"); }
 
