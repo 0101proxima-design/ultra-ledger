@@ -381,7 +381,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const [amount, setAmount] = useState("");
   const [remark, setRemark] = useState("");
   const [search, setSearch] = useState("");
-  const [showCols, setShowCols] = useState({ date:true, counter:true, remark:true, debit:true, credit:true, balance:true, action:true });
+  const [showCols, setShowCols] = useState({ check:true, date:true, counter:true, remark:true, debit:true, credit:true, balance:true, action:true });
   const [showColDropdown, setShowColDropdown] = useState(false);
   const [editEntry, setEditEntry] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -416,6 +416,10 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const [lastBackupTime, setLastBackupTime] = useState((cloudState && cloudState.lastBackupTime) || 0);
   const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
   const [backupCheckTick, setBackupCheckTick] = useState(0);
+  const [adminPwdPrompt, setAdminPwdPrompt] = useState(null);
+  const [adminPwdInput, setAdminPwdInput] = useState("");
+  const [adminPwdErr, setAdminPwdErr] = useState("");
+  const [adminPwdBusy, setAdminPwdBusy] = useState(false);
 
   const tableEndRef = useRef(null);
   const amountRef = useRef(null);
@@ -429,6 +433,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const addBtnRef = useRef(null);
   const firstNavRef = useRef(null);
   const lastNavRef = useRef(null);
+
+  const isAdmin = profile && profile.role === "admin";
 
   stateSnapRef.current = { parties, ledgers, finals, pin, theme, sidebarOpen, companyName, history, lastBackupTime, selectedParty, counter };
 
@@ -477,6 +483,20 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const balMap = useMemo(() => { const m = new Map(); let run = 0; partyEntries.forEach(e => { run += e.amount; m.set(e.id, run); }); return { map:m, total:run }; }, [partyEntries]);
   const filteredEntries = useMemo(() => { if(!search.trim()) return partyEntries; const s = search.toLowerCase(); return partyEntries.filter(e => (dmy(e.date)+" "+(e.time||"")+" "+(e.counterPartyId||"")+" "+(e.remark||"")+" "+e.amount).toLowerCase().includes(s)); }, [partyEntries, search]);
 
+  // Select all checkbox logic
+  const allVisibleChecked = filteredEntries.length > 0 && filteredEntries.every(e => e._checked);
+  const someVisibleChecked = filteredEntries.some(e => e._checked) && !allVisibleChecked;
+
+  const toggleEntryCheck = (entryId) => {
+    setLedgers(prev => prev.map(e => e.id === entryId ? Object.assign({}, e, { _checked: !e._checked }) : e));
+  };
+
+  const toggleAllVisible = () => {
+    const targetState = !allVisibleChecked;
+    const visibleIds = new Set(filteredEntries.map(e => e.id));
+    setLedgers(prev => prev.map(e => visibleIds.has(e.id) ? Object.assign({}, e, { _checked: targetState }) : e));
+  };
+
   const isLocked = (e) => {
     if (e.openingLocked === true) return true;
     if ((e.remark||"").toLowerCase()==="opening") return true;
@@ -499,7 +519,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     if(filterFrom) src = src.filter(e => e.date >= filterFrom);
     if(filterTo) src = src.filter(e => e.date <= filterTo);
     const debitParties = [], creditParties = [];
-    parties.filter(p=>p.status==="Active").forEach(p => {
+    // CHANGED: Now includes deactive parties too (so balance stays stable)
+    parties.forEach(p => {
       const bal = src.filter(l=>l.partyId===p.id).reduce((a,e)=>a+e.amount,0);
       if(bal<0) debitParties.push({ party:p, bal:bal });
       else if(bal>0) creditParties.push({ party:p, bal:bal });
@@ -585,6 +606,31 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     } else setPinPromptErr("Wrong PIN – try again");
   };
 
+  const requireAdminPassword = (runFn, label) => {
+    if (!isAdmin) { showToast("❌ Only ADMIN can do this"); return; }
+    setAdminPwdPrompt({ run: runFn, label: label || "Admin action" });
+    setAdminPwdInput("");
+    setAdminPwdErr("");
+  };
+
+  const confirmAdminPassword = async () => {
+    if (!adminPwdInput.trim()) { setAdminPwdErr("Password required"); return; }
+    setAdminPwdBusy(true); setAdminPwdErr("");
+    try {
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user || !user.email) throw new Error("Session expired – login again");
+      const { error } = await sb.auth.signInWithPassword({ email: user.email, password: adminPwdInput });
+      if (error) throw new Error("Wrong password");
+      const fn = adminPwdPrompt.run;
+      setAdminPwdPrompt(null); setAdminPwdInput(""); setAdminPwdErr("");
+      setAdminPwdBusy(false);
+      setTimeout(() => fn(), 50);
+    } catch (e) {
+      setAdminPwdErr(e.message || "Verification failed");
+      setAdminPwdBusy(false);
+    }
+  };
+
   const parseAmounts = (str) => {
     if(!str) return [];
     const parts = str.split("/").map(s=>s.trim()).filter(Boolean);
@@ -605,8 +651,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const finalRemark = remark.trim();
     nums.forEach((n, i) => {
       const pairId = "pair_"+now+"_"+i;
-      newEntries.push({ id:"e_"+now+"_"+i+"_1", pairId:pairId, date:date, time:time, partyId:selectedParty, counterPartyId:counter, amount:n, remark:finalRemark, createdAt:now+i*2 });
-      newEntries.push({ id:"e_"+now+"_"+i+"_2", pairId:pairId, date:date, time:time, partyId:counter, counterPartyId:selectedParty, amount:-n, remark:finalRemark, createdAt:now+i*2+1 });
+      newEntries.push({ id:"e_"+now+"_"+i+"_1", pairId:pairId, date:date, time:time, partyId:selectedParty, counterPartyId:counter, amount:n, remark:finalRemark, createdAt:now+i*2, _checked:false });
+      newEntries.push({ id:"e_"+now+"_"+i+"_2", pairId:pairId, date:date, time:time, partyId:counter, counterPartyId:selectedParty, amount:-n, remark:finalRemark, createdAt:now+i*2+1, _checked:false });
     });
     setLedgers(prev => prev.concat(newEntries));
     setAmount(""); setRemark("");
@@ -658,7 +704,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     const counterEntries = ledgers.filter(l => l.counterPartyId === selectedParty && !l.openingLocked && (l.remark||"").toLowerCase() !== "opening" && !l.finalLocked);
     setFinals(prev => prev.concat([{ id:"final_"+now, partyId:selectedParty, closedAt:todayISO(), entries:entries, counterEntries:counterEntries, balance:balance, createdAt:now }]));
     const counterPairIds = new Set(counterEntries.map(e => e.pairId));
-    setLedgers(prev => prev.filter(l => l.partyId !== selectedParty).map(l => { if (counterPairIds.has(l.pairId)) return Object.assign({}, l, { finalLocked: true }); return l; }).concat([{ id:"open_"+now, pairId:"opening_"+now, date:todayISO(), time:nowTime(), partyId:selectedParty, counterPartyId:"", amount:balance, remark:"Opening", createdAt:now+5, openingLocked:true, carryForward:true }]));
+    setLedgers(prev => prev.filter(l => l.partyId !== selectedParty).map(l => { if (counterPairIds.has(l.pairId)) return Object.assign({}, l, { finalLocked: true }); return l; }).concat([{ id:"open_"+now, pairId:"opening_"+now, date:todayISO(), time:nowTime(), partyId:selectedParty, counterPartyId:"", amount:balance, remark:"Opening", createdAt:now+5, openingLocked:true, carryForward:true, _checked:false }]));
     setConfirmFinal(false);
     showToast(selectedParty+" Finalized → Opening "+fmtINR(balance));
   };
@@ -741,34 +787,73 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   };
 
   const handleBackup = () => {
-    requirePin(() => {
-      const data = { parties, ledgers, finals, pin, companyName, history, exportedAt: new Date().toISOString() };
+    if (!isAdmin) return showToast("❌ Only ADMIN can backup");
+    requireAdminPassword(() => {
+      const data = { parties, ledgers, finals, pin, companyName, history, exportedAt: new Date().toISOString(), exportedBy: profile?.username };
       downloadBlob(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}), "backup_"+todayISO()+"_"+nowTime().replace(":","-")+".json");
       const now = Date.now();
       setLastBackupTime(now);
       setBackupBannerDismissed(false);
-      showToast("Backup exported ✓ – Next due in 24 hours");
+      setHistory(prev => [{ id:"h_"+Date.now(), dateDisplay:dmy(todayISO()), timeDisplay:nowTime(), action:"Backup", partyId:"-", oldVal:"-", newVal:"-", remark:"Manual backup by @"+(profile?.username||"?") }].concat(prev));
+      showToast("Backup exported ✓");
     }, "Backup JSON");
   };
 
-  const triggerRestore = () => { if (fileInputRef.current) fileInputRef.current.click(); };
+  const triggerRestore = () => {
+    if (!isAdmin) return showToast("❌ Only ADMIN can restore");
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
 
   const handleRestoreFile = (e) => {
     const f = e.target.files[0];
     if(!f) return;
     e.target.value = "";
-    requirePin(() => {
+    if (!isAdmin) return showToast("❌ Only ADMIN can restore");
+    requireAdminPassword(() => {
       const r = new FileReader();
       r.onload = () => {
         try {
           const d = JSON.parse(r.result);
+
+          // STEP 1: AUTO-BACKUP current state
+          const currentStateBackup = {
+            parties, ledgers, finals, pin, companyName, history,
+            autoBackupAt: new Date().toISOString(),
+            autoBackupReason: "Before restoring from file: " + f.name,
+            autoBackupBy: profile?.username
+          };
+          downloadBlob(
+            new Blob([JSON.stringify(currentStateBackup, null, 2)],{type:"application/json"}),
+            "auto-backup_before-restore_"+todayISO()+"_"+nowTime().replace(":","-")+".json"
+          );
+
+          // STEP 2: Apply restore
+          const prevCount = ledgers.length;
           if(d.parties) setParties(d.parties);
           if(d.ledgers) setLedgers(d.ledgers);
           if(d.finals) setFinals(d.finals);
           if(d.pin) setPin(d.pin);
           if(d.companyName !== undefined) { setCompanyName(d.companyName || ""); setCompanyNameInput(d.companyName || ""); }
-          if(d.history) setHistory(d.history);
-          showToast("Restore OK");
+
+          // STEP 3: History log
+          const restoreLogEntry = {
+            id: "h_"+Date.now(),
+            dateDisplay: dmy(todayISO()),
+            timeDisplay: nowTime(),
+            action: "Restore",
+            partyId: "-",
+            oldVal: prevCount + " entries",
+            newVal: (d.ledgers?.length || 0) + " entries",
+            remark: "Restored by @"+(profile?.username||"?")+" from "+f.name+" • Auto-backup downloaded"
+          };
+
+          if(d.history && Array.isArray(d.history)) {
+            setHistory([restoreLogEntry].concat(d.history));
+          } else {
+            setHistory(prev => [restoreLogEntry].concat(prev));
+          }
+
+          showToast("Restore OK ✓ Auto-backup downloaded");
         } catch { showToast("Invalid file"); }
       };
       r.readAsText(f);
@@ -856,11 +941,12 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     h("div", { className:"p-3 flex flex-col gap-2 overflow-y-auto flex-1" }, navBtns),
     h("div", { className:"p-3 border-t text-[10px] font-bold opacity-70 "+(theme==="midnight"?"border-zinc-800":"border-gray-200") },
       h("div", null, "☁️ Cloud: ", h("b", { className:"text-green-600" }, "ON")),
+      h("div", { className:"mt-1" }, "👤 Role: ", h("b", { className: isAdmin ? "text-purple-600" : "text-slate-500" }, isAdmin ? "ADMIN" : "User")),
       h("div", { className:"mt-1" }, "📅 Last backup: ", lastBackupTime ? new Date(lastBackupTime).toLocaleString("en-IN") : h("b", { className:"text-red-500" }, "Never"))
     )
   );
 
-  const backupBanner = backupDue && !backupBannerDismissed && h("div", { className:"slide-down fixed top-0 left-0 right-0 z-[60] flex items-center justify-between px-4 py-3 shadow-lg", style:{background:"linear-gradient(90deg,#f59e0b,#d97706)"} },
+  const backupBanner = backupDue && !backupBannerDismissed && isAdmin && h("div", { className:"slide-down fixed top-0 left-0 right-0 z-[60] flex items-center justify-between px-4 py-3 shadow-lg", style:{background:"linear-gradient(90deg,#f59e0b,#d97706)"} },
     h("div", { className:"flex items-center gap-3 text-white" },
       h("span", { className:"text-[22px]" }, "⏰"),
       h("div", null,
@@ -892,7 +978,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
             showColDropdown && h("div", { className:"absolute right-0 top-9 w-56 rounded-xl border shadow-2xl z-40 p-2 "+T.card },
               Object.entries(showCols).map(([k,v]) => h("label", { key:k, className:"flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 cursor-pointer text-[13px]" },
                 h("input", { type:"checkbox", tabIndex: -1, checked:v, onChange:()=>setShowCols(s=>Object.assign({},s,{[k]:!s[k]})) }),
-                h("span", { className:v?"":"opacity-40 line-through" }, k)
+                h("span", { className:v?"":"opacity-40 line-through" }, k === "check" ? "✓ (Tick)" : k)
               ))
             )
           )
@@ -902,6 +988,18 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         h("table", { className:"w-full border-collapse", style:{fontSize:"13px"} },
           h("thead", { className:"sticky top-0 z-[5] "+T.tableHeader },
             h("tr", null,
+              showCols.check && h("th", { className:"py-1.5 px-2 text-center font-black text-[12px] uppercase tracking-wide", style:{width:"36px"} },
+                h("input", {
+                  type:"checkbox",
+                  tabIndex: -1,
+                  checked: allVisibleChecked,
+                  ref: (el) => { if (el) el.indeterminate = someVisibleChecked; },
+                  onChange: toggleAllVisible,
+                  disabled: filteredEntries.length === 0,
+                  className:"w-4 h-4 cursor-pointer accent-cyan-600 disabled:opacity-30",
+                  title: "Select All (visible)"
+                })
+              ),
               showCols.date && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Date"),
               showCols.counter && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Counter"),
               showCols.remark && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Remark"),
@@ -912,11 +1010,21 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
             )
           ),
           h("tbody", null,
-            filteredEntries.length===0 && h("tr", null, h("td", { colSpan:7, className:"p-6 text-center opacity-60" }, "No entries — Add new entry")),
+            filteredEntries.length===0 && h("tr", null, h("td", { colSpan:8, className:"p-6 text-center opacity-60" }, "No entries — Add new entry")),
             filteredEntries.map(e => {
               const bal = balMap.map.get(e.id) || 0;
               const locked = isLocked(e);
-              return h("tr", { key:e.id, className:"border-t "+(theme==="midnight"?"border-zinc-800 hover:bg-zinc-900":"border-gray-100 hover:bg-gray-50"), style:{height:"26px"} },
+              const checked = !!e._checked;
+              return h("tr", { key:e.id, className:"border-t "+(checked ? (theme==="midnight"?"bg-cyan-900/30":"bg-cyan-50") : "")+" "+(theme==="midnight"?"border-zinc-800 hover:bg-zinc-900":"border-gray-100 hover:bg-gray-50"), style:{height:"26px"} },
+                showCols.check && h("td", { className:"py-0.5 px-2 text-center" },
+                  h("input", {
+                    type:"checkbox",
+                    tabIndex: -1,
+                    checked: checked,
+                    onChange: () => toggleEntryCheck(e.id),
+                    className:"w-4 h-4 cursor-pointer accent-cyan-600"
+                  })
+                ),
                 showCols.date && h("td", { className:"py-0.5 px-2.5 font-mono text-[13px] font-semibold whitespace-nowrap" },
                   h("span", null, dmy(e.date)),
                   e.time && h("span", { className:"ml-2 text-[10px] opacity-60 font-bold" }, e.time.slice(0,5))
@@ -934,7 +1042,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
                 )
               );
             }),
-            h("tr", { ref: tableEndRef }, h("td", { colSpan:7, style:{height:"1px", padding:0, border:0} }))
+            h("tr", { ref: tableEndRef }, h("td", { colSpan:8, style:{height:"1px", padding:0, border:0} }))
           )
         )
       ),
@@ -1136,7 +1244,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         h("div", { className:"p-4 space-y-2" },
           trial.debitParties.length===0 ? h("div", { className:"text-center py-8 opacity-60 text-[13px] font-bold" }, "No debit parties") :
           trial.debitParties.map(p => h("div", { key:p.party.id, className:"flex justify-between items-center h-12 px-4 rounded-xl border border-red-100" },
-            h("span", { className:"font-black text-[14px]" }, p.party.id),
+            h("span", { className:"font-black text-[14px]" }, p.party.id, p.party.status !== "Active" && h("span", { className:"ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700" }, "D")),
             h("span", { className:"font-mono font-black text-red-600 text-[14px]" }, fmtINR(p.bal))
           ))
         )
@@ -1146,7 +1254,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         h("div", { className:"p-4 space-y-2" },
           trial.creditParties.length===0 ? h("div", { className:"text-center py-8 opacity-60 text-[13px] font-bold" }, "No credit parties") :
           trial.creditParties.map(p => h("div", { key:p.party.id, className:"flex justify-between items-center h-12 px-4 rounded-xl border border-green-100" },
-            h("span", { className:"font-black text-[14px]" }, p.party.id),
+            h("span", { className:"font-black text-[14px]" }, p.party.id, p.party.status !== "Active" && h("span", { className:"ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700" }, "D")),
             h("span", { className:"font-mono font-black text-green-600 text-[14px]" }, fmtINR(p.bal))
           ))
         )
@@ -1166,13 +1274,15 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         )
       ),
       h("div", { className:"grid grid-cols-2 gap-3 mt-4" },
-        h("div", { className:"p-3 rounded-lg bg-slate-50 border border-slate-200" },
-          h("div", { className:"text-[10px] font-black text-slate-500 uppercase" }, "Role"),
-          h("div", { className:"text-[13px] font-black text-slate-800 mt-0.5" }, profile?.role === "admin" ? "Admin" : "User")),
+        h("div", { className:"p-3 rounded-lg " + (isAdmin ? "bg-purple-50 border border-purple-200" : "bg-slate-50 border border-slate-200") },
+          h("div", { className:"text-[10px] font-black uppercase " + (isAdmin ? "text-purple-600" : "text-slate-500") }, "Role"),
+          h("div", { className:"text-[13px] font-black mt-0.5 " + (isAdmin ? "text-purple-800" : "text-slate-800") }, isAdmin ? "⭐ ADMIN" : "User")),
         h("div", { className:"p-3 rounded-lg bg-slate-50 border border-slate-200" },
           h("div", { className:"text-[10px] font-black text-slate-500 uppercase" }, "User ID"),
           h("div", { className:"text-[11px] font-bold text-slate-800 font-mono mt-0.5 truncate" }, (profile?.id || "").slice(0, 12) + "..."))
-      )
+      ),
+      isAdmin && h("div", { className:"mt-3 p-3 rounded-lg bg-purple-50 border border-purple-200 text-[12px] font-bold text-purple-800" },
+        "⭐ Aap company ke ADMIN hain. Aap hi Backup aur Restore kar sakte hain (password verification ke saath).")
     ),
     h(ChangePasswordCard, { T: T }),
     h("div", { className:"rounded-xl border p-6 "+T.card },
@@ -1213,7 +1323,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     h("div", { className:"rounded-xl border p-6 "+T.card },
       h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide flex items-center gap-2" }, "🔐 PIN SECURITY", pin && h("span", { className:"text-[11px] px-2 py-0.5 rounded-full bg-green-100 text-green-800 border border-green-300" }, "PIN is SET")),
       !pin ? h("div", { className:"flex flex-col gap-3" },
-        h("div", { className:"text-[12px] font-semibold opacity-70" }, "Set a PIN to protect: ", h("b", null, "FINAL, Party Add/Modify/Active, Company Name, Backup, Restore, Remove PIN")),
+        h("div", { className:"text-[12px] font-semibold opacity-70" }, "Set a PIN to protect: ", h("b", null, "FINAL, Party Add/Modify/Active, Company Name, Remove PIN")),
         h("div", { className:"flex gap-3 items-center flex-wrap" },
           h("input", { type:"password", tabIndex: -1, maxLength:6, value: pinInputProfile, onChange: e => { setPinInputProfile(e.target.value.replace(/[^0-9]/g, "")); setPinProfileMsg(""); }, placeholder:"Enter 4-6 digit PIN", className:"h-12 rounded-lg border px-4 text-[14px] font-bold w-[220px] tracking-widest "+T.input }),
           h("button", { tabIndex: -1, onClick: () => { if (pinInputProfile.length < 4) { setPinProfileMsg("PIN must be at least 4 digits"); return; } setPin(pinInputProfile); setPinInputProfile(""); setPinProfileMsg(""); showToast("PIN Set Successfully"); }, className:"h-12 px-6 rounded-lg text-[13px] font-black "+T.addBtn }, "Set PIN")
@@ -1227,12 +1337,34 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         )
       )
     ),
-    h("div", { className:"rounded-xl border p-6 "+T.card },
-      h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide" }, "💾 BACKUP & RESTORE", pin && h("span", { className:"ml-2 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300" }, "🔒 PIN Protected")),
+    h("div", { className:"rounded-xl border p-6 "+T.card+" " + (isAdmin ? "border-purple-300 bg-purple-50" : "opacity-60") },
+      h("div", { className:"font-black text-[15px] mb-4 uppercase tracking-wide flex items-center gap-2" },
+        "💾 BACKUP & RESTORE",
+        isAdmin ? h("span", { className:"text-[11px] px-2 py-0.5 rounded-full bg-purple-200 text-purple-900 border border-purple-400" }, "⭐ ADMIN ONLY") :
+                  h("span", { className:"text-[11px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-300" }, "🔒 ADMIN ONLY")
+      ),
+      h("div", { className:"text-[12px] font-semibold mb-3 " + (isAdmin ? "text-purple-800" : "text-red-700") },
+        isAdmin
+          ? "⚠️ Backup/Restore ke liye aapka ADMIN LOGIN PASSWORD maanga jayega (extra security). Restore karne se PEHLE current data ka auto-backup download hoga."
+          : "❌ Sirf ADMIN backup/restore kar sakta hai. Aap ek normal user hain."
+      ),
       h("div", { className:"flex gap-3 flex-wrap" },
-        h("button", { tabIndex: -1, onClick: handleBackup, className:"h-12 px-6 rounded-lg text-[13px] font-black border "+T.exportBtnAlt }, "⬇️ Backup JSON", pin && h("span", { className:"ml-1.5 text-[11px]" }, "🔒")),
-        h("button", { tabIndex: -1, onClick: triggerRestore, className:"h-12 px-6 rounded-lg text-[13px] font-black border "+T.exportBtnAlt }, "⬆️ Restore", pin && h("span", { className:"ml-1.5 text-[11px]" }, "🔒")),
+        h("button", {
+          tabIndex: -1,
+          onClick: handleBackup,
+          disabled: !isAdmin,
+          className: "h-12 px-6 rounded-lg text-[13px] font-black border " + (isAdmin ? T.exportBtnAlt : "bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed")
+        }, "⬇️ Backup JSON", isAdmin && h("span", { className:"ml-1.5 text-[11px]" }, "🔐")),
+        h("button", {
+          tabIndex: -1,
+          onClick: triggerRestore,
+          disabled: !isAdmin,
+          className: "h-12 px-6 rounded-lg text-[13px] font-black border " + (isAdmin ? T.exportBtnAlt : "bg-gray-200 text-gray-400 border-gray-300 cursor-not-allowed")
+        }, "⬆️ Restore", isAdmin && h("span", { className:"ml-1.5 text-[11px]" }, "🔐")),
         h("input", { ref: fileInputRef, type:"file", accept:".json", onChange: handleRestoreFile, className:"hidden" })
+      ),
+      isAdmin && h("div", { className:"mt-3 p-3 rounded-lg bg-amber-50 border border-amber-300 text-[11px] font-bold text-amber-800" },
+        "💡 Restore karne se pehle current data ka auto-backup download hoga — usse aap kabhi bhi purana data wapas la sakte ho."
       )
     )
   );
@@ -1330,11 +1462,11 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
             h("tbody", null, (historyFilter==="All"?history:history.filter(x=>x.partyId===historyFilter||x.oldVal===historyFilter||x.newVal===historyFilter)).map(x => h("tr", { key:x.id, className:"border-t" },
               h("td", { className:"py-1.5 px-2.5 font-mono text-[12px] font-bold" }, x.dateDisplay),
               h("td", { className:"py-1.5 px-2.5 font-bold" }, x.timeDisplay),
-              h("td", { className:"py-1.5 px-2.5" }, h("span", { className:"px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[11px] font-black" }, x.action)),
+              h("td", { className:"py-1.5 px-2.5" }, h("span", { className:"px-2 py-0.5 rounded-full text-[11px] font-black " + (x.action === "Restore" ? "bg-purple-100 text-purple-700" : x.action === "Backup" ? "bg-amber-100 text-amber-700" : "bg-blue-50 text-blue-700") }, x.action)),
               h("td", { className:"py-1.5 px-2.5 font-black text-[13px]" }, x.partyId),
               h("td", { className:"py-1.5 px-2.5 font-mono font-bold text-[12px]" }, x.oldVal),
               h("td", { className:"py-1.5 px-2.5 font-mono font-bold text-[12px]" }, x.newVal),
-              h("td", { className:"py-1.5 px-2.5 font-semibold truncate max-w-[200px]" }, x.remark)
+              h("td", { className:"py-1.5 px-2.5 font-semibold truncate max-w-[300px]" }, x.remark)
             )))
           )
         )
@@ -1403,6 +1535,33 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       )
     ),
 
+    adminPwdPrompt && h("div", { className:"fixed inset-0 z-[96] bg-black/70 flex items-center justify-center p-4", onClick:()=>{ if(!adminPwdBusy) setAdminPwdPrompt(null); } },
+      h("div", { className:"w-full max-w-[420px] rounded-xl border-2 border-purple-300 bg-white shadow-2xl p-6 flex flex-col gap-3", onClick:e=>e.stopPropagation() },
+        h("div", { className:"flex items-start justify-between" },
+          h("div", { className:"w-12 h-12 rounded-full bg-purple-100 border border-purple-300 text-purple-700 flex items-center justify-center text-[22px]" }, "⭐"),
+          h("button", { onClick:()=>{ if(!adminPwdBusy) setAdminPwdPrompt(null); }, disabled: adminPwdBusy, className:"w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 font-bold text-[14px] disabled:opacity-50" }, "✕")
+        ),
+        h("div", { className:"font-black text-[16px] text-purple-900" }, "⭐ Admin Password Required"),
+        h("div", { className:"text-[12px] font-semibold text-gray-600" }, "Confirm as ADMIN: ", h("b", { className:"text-purple-800" }, adminPwdPrompt.label)),
+        h("div", { className:"text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" }, "🔐 Apna ADMIN LOGIN PASSWORD daalein (PIN nahi)"),
+        h("input", {
+          type:"password",
+          autoFocus:true,
+          value: adminPwdInput,
+          onChange: e => { setAdminPwdInput(e.target.value); setAdminPwdErr(""); },
+          onKeyDown: e => { if (e.key === "Enter") { e.preventDefault(); confirmAdminPassword(); } else if (e.key === "Escape" && !adminPwdBusy) { setAdminPwdPrompt(null); } },
+          placeholder:"Enter admin password",
+          disabled: adminPwdBusy,
+          className:"w-full h-12 rounded-lg border-2 border-purple-300 px-4 text-[15px] font-bold tracking-wide text-center outline-none focus:border-purple-600 disabled:opacity-50"
+        }),
+        adminPwdErr && h("div", { className:"text-[12px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center" }, "❌ " + adminPwdErr),
+        h("div", { className:"flex gap-2 pt-1" },
+          h("button", { onClick:()=>setAdminPwdPrompt(null), disabled: adminPwdBusy, className:"flex-1 h-11 rounded-lg border text-[13px] font-bold bg-white text-gray-700 border-gray-300 disabled:opacity-50" }, "Cancel"),
+          h("button", { onClick:confirmAdminPassword, disabled: adminPwdBusy, className:"flex-1 h-11 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-black text-[13px] disabled:opacity-50" }, adminPwdBusy ? "Verifying..." : "⭐ Confirm")
+        )
+      )
+    ),
+
     toast && h("div", { className:"fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-full bg-black text-white text-[14px] font-black shadow-2xl" }, "✓ "+toast)
   );
 }
@@ -1462,6 +1621,7 @@ function MainApp() {
       const localTime = (cached && cached.lastModified) || 0;
 
       console.log("Cloud time:", cloudTime ? new Date(cloudTime).toLocaleString() : "none", "| Local time:", localTime ? new Date(localTime).toLocaleString() : "none");
+      console.log("User role:", prof.role);
 
       if (cloudTime > localTime && st && st.state) {
         console.log("Using CLOUD state (newer)");
