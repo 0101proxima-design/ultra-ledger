@@ -105,7 +105,7 @@ const fmtINR = (n) => isNaN(n) ? "₹0/-" : "₹" + Number(n).toLocaleString("en
 const absINR = (n) => "₹" + Math.abs(n).toLocaleString("en-IN") + "/-";
 const todayISO = () => new Date().toISOString().slice(0,10);
 const nowTime = () => { const d=new Date(); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
-const dmy = (iso) => { if(!iso) return "-"; const p=iso.split("-"); return p.length===3&&p[0].length===4 ? p[2]+"-"+p[1]+"-"+p[0] : iso; };
+const dmy = (iso) => { if(!iso) return "-"; const p=iso.split("T")[0].split("-"); return p.length===3&&p[0].length===4 ? p[2]+"-"+p[1]+"-"+p[0] : iso; };
 
 const SEED_PARTIES = [
   { id:"AA", name:"AA", status:"Active" },
@@ -229,13 +229,29 @@ function LoginScreen({ onLogin }) {
     try {
       const uname = username.trim().toLowerCase();
       if (!uname) throw new Error("Username required");
-      const { data: prof } = await sb.from("profiles").select("username, company_id").eq("username", uname).maybeSingle();
+
+      const { data: prof } = await sb.from("profiles").select("username, company_id, active, deleted_at").eq("username", uname).maybeSingle();
       if (!prof || !prof.company_id) throw new Error("Username not found");
-      const { data: comp } = await sb.from("companies").select("code").eq("id", prof.company_id).single();
+      if (prof.deleted_at) throw new Error("Account deleted. Contact admin.");
+      if (prof.active === false) throw new Error("Account deactivated. Contact admin.");
+
+      const { data: comp } = await sb.from("companies").select("code, active, expiry_date, deleted_at").eq("id", prof.company_id).single();
       if (!comp) throw new Error("Company not found");
+      if (comp.deleted_at) throw new Error("Company deleted. Contact admin.");
+      if (comp.active === false) throw new Error("Company inactive. Contact admin.");
+      if (comp.expiry_date && new Date(comp.expiry_date + "T23:59:59") < new Date()) {
+        throw new Error("Subscription expired. Contact admin.");
+      }
+
       const email = uname + "." + comp.code.toLowerCase() + EMAIL_DOMAIN;
       const { data, error } = await sb.auth.signInWithPassword({ email, password });
       if (error) throw new Error("Wrong username or password");
+
+      // Update last login
+      try {
+        await sb.from("profiles").update({ last_login: new Date().toISOString() }).eq("id", data.user.id);
+      } catch (e) { console.warn("Last login update failed:", e); }
+
       if (onLogin) await onLogin(data.session);
     } catch (e) { setErr(e.message || "Login failed"); } finally { setBusy(false); }
   }
@@ -368,7 +384,7 @@ function ChangePasswordCard({ T }) {
   );
 }
 
-function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile, companyId }) {
+function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile, companyId, notice }) {
   const [theme, setTheme] = useState((cloudState && cloudState.theme) || "ocean");
   const [tab, setTab] = useState("ledger");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -421,6 +437,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const [adminPwdInput, setAdminPwdInput] = useState("");
   const [adminPwdErr, setAdminPwdErr] = useState("");
   const [adminPwdBusy, setAdminPwdBusy] = useState(false);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
 
   const tableEndRef = useRef(null);
   const amountRef = useRef(null);
@@ -779,7 +796,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     showToast("FR Excel exported");
   };
 
-  // NEW: Trial Balance Excel export
   const exportTrialExcel = () => {
     let csv = "TRIAL BALANCE\n";
     csv += "From," + (filterFrom || "Start") + "\n";
@@ -965,6 +981,14 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       h("div", null, "☁️ Cloud: ", h("b", { className:"text-green-600" }, "ON")),
       h("div", { className:"mt-1" }, "👤 Role: ", h("b", { className: isAdmin ? "text-purple-600" : "text-slate-500" }, isAdmin ? "ADMIN" : "User")),
       h("div", { className:"mt-1" }, "📅 Last backup: ", lastBackupTime ? new Date(lastBackupTime).toLocaleString("en-IN") : h("b", { className:"text-red-500" }, "Never"))
+    )
+  );
+
+  const noticeBanner = notice && !noticeDismissed && h("div", { className:"fixed top-16 left-0 right-0 z-[55] "+(sidebarOpen?"lg:ml-[280px]":"ml-0") },
+    h("div", { className:"mx-3 mt-2 p-3 rounded-xl shadow-lg flex items-start gap-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white" },
+      h("span", { className:"text-[20px]" }, "📢"),
+      h("div", { className:"flex-1 text-[13px] font-bold whitespace-pre-wrap" }, notice.message),
+      h("button", { onClick:()=>setNoticeDismissed(true), className:"w-7 h-7 rounded-full bg-white/20 hover:bg-white/30 text-[14px] font-black shrink-0" }, "✕")
     )
   );
 
@@ -1403,12 +1427,13 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     h("div", { className:"w-full max-w-[440px] rounded-xl border bg-white shadow-2xl p-5", onClick:e=>e.stopPropagation() }, children));
 
   return h("div", { className:"min-h-screen flex flex-col "+T.pageBg+" "+T.text },
+    noticeBanner,
     backupBanner,
     header,
     h("div", { className:"flex flex-1 relative" },
       sidebarOpen && h("div", { className:"fixed inset-0 bg-black/40 z-40 lg:hidden", onClick:()=>setSidebarOpen(false) }),
       sidebar,
-      h("main", { className:"flex-1 min-w-0 flex flex-col overflow-auto "+(sidebarOpen?"lg:ml-[280px]":"ml-0") }, pages[tab])
+      h("main", { className:"flex-1 min-w-0 flex flex-col overflow-auto "+(sidebarOpen?"lg:ml-[280px]":"ml-0")+(notice && !noticeDismissed ? " pt-16" : "") }, pages[tab])
     ),
 
     editEntry && modal([
@@ -1603,6 +1628,7 @@ function MainApp() {
   const [saveStatus, setSaveStatus] = useState("idle");
   const [companyId, setCompanyId] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -1617,11 +1643,40 @@ function MainApp() {
     })();
     const { data: sub } = sb.auth.onAuthStateChange(async (event, sess) => {
       if (event === "SIGNED_OUT") {
-        setSession(null); setCloudState(null); setCompanyId(null); setProfile(null); setReady(true);
+        setSession(null); setCloudState(null); setCompanyId(null); setProfile(null); setNotice(null); setReady(true);
       }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // Auto-logout if user deactivated / company inactive / company deleted
+  useEffect(() => {
+    if (!session) return;
+    const iv = setInterval(async () => {
+      try {
+        const { data: prof } = await sb.from("profiles").select("active, deleted_at, company_id").eq("id", session.user.id).single();
+        if (!prof) return;
+        if (prof.deleted_at || prof.active === false) {
+          alert("Aapka account deactivate ya delete ho gaya hai. Logout kar rahe hain.");
+          await sb.auth.signOut();
+          return;
+        }
+        const { data: comp } = await sb.from("companies").select("active, deleted_at, expiry_date").eq("id", prof.company_id).single();
+        if (!comp) return;
+        if (comp.deleted_at || comp.active === false) {
+          alert("Company inactive ya delete ho gayi hai. Logout kar rahe hain.");
+          await sb.auth.signOut();
+          return;
+        }
+        if (comp.expiry_date && new Date(comp.expiry_date + "T23:59:59") < new Date()) {
+          alert("Subscription expired. Logout kar rahe hain.");
+          await sb.auth.signOut();
+          return;
+        }
+      } catch (e) { console.warn("Status check failed:", e); }
+    }, 60000);
+    return () => clearInterval(iv);
+  }, [session]);
 
   async function loadAll(sess) {
     setReady(false);
@@ -1633,6 +1688,12 @@ function MainApp() {
       setProfile(prof);
       setSession(sess);
       setBootMsg("Loading ledger...");
+
+      // Load latest broadcast notice
+      try {
+        const { data: ntcs } = await sb.from("broadcast_notices").select("message, created_at").eq("active", true).order("created_at", { ascending: false }).limit(1);
+        if (ntcs && ntcs.length > 0) setNotice(ntcs[0]);
+      } catch (e) { console.warn("Notice load failed:", e); }
 
       const { data: st, error: stErr } = await sb.from("company_state").select("state").eq("company_id", prof.company_id).maybeSingle();
       if (stErr) console.error("LOAD FAILED:", stErr);
@@ -1730,7 +1791,8 @@ function MainApp() {
     saveCloud,
     cloudSaveStatus: saveStatus,
     profile: profile,
-    companyId: companyId
+    companyId: companyId,
+    notice: notice
   });
 }
 
