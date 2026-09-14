@@ -91,6 +91,7 @@ if (typeof document !== "undefined") {
     .font-mono { font-family: "Consolas", "Monaco", monospace !important; font-weight: 700 !important; }
     button:focus-visible { outline: 2px solid #06b6d4 !important; outline-offset: 2px !important; }
     input:focus, select:focus { outline: 2px solid #06b6d4 !important; outline-offset: 0; }
+    input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: #0891b2; }
   `;
   document.head.appendChild(fontStyle);
 }
@@ -111,8 +112,8 @@ const SEED_PARTIES = [
   { id:"BB", name:"BB", status:"Active" }
 ];
 const SEED_OPEN = [
-  { id:"bb_open", pairId:"opening_bb", date:todayISO(), time:"09:15", partyId:"BB", counterPartyId:"", amount:37186, remark:"Opening", createdAt:5000, openingLocked:true },
-  { id:"aa_open", pairId:"opening_aa", date:todayISO(), time:"09:15", partyId:"AA", counterPartyId:"", amount:-37186, remark:"Opening", createdAt:5000, openingLocked:true }
+  { id:"bb_open", pairId:"opening_bb", date:todayISO(), time:"09:15", partyId:"BB", counterPartyId:"", amount:37186, remark:"Opening", createdAt:5000, openingLocked:true, _checked:false },
+  { id:"aa_open", pairId:"opening_aa", date:todayISO(), time:"09:15", partyId:"AA", counterPartyId:"", amount:-37186, remark:"Opening", createdAt:5000, openingLocked:true, _checked:false }
 ];
 
 function SearchableSelect({ value, options, onChange, T, style, className, dropUp, placeholder, onSelectComplete, triggerRef, onTriggerKeyDown, triggerTabIndex }) {
@@ -381,7 +382,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const [amount, setAmount] = useState("");
   const [remark, setRemark] = useState("");
   const [search, setSearch] = useState("");
-  const [showCols, setShowCols] = useState({ check:true, date:true, counter:true, remark:true, debit:true, credit:true, balance:true, action:true });
+  const [showCols, setShowCols] = useState({ date:true, counter:true, remark:true, debit:true, credit:true, balance:true, action:true });
   const [showColDropdown, setShowColDropdown] = useState(false);
   const [editEntry, setEditEntry] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -483,7 +484,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
   const balMap = useMemo(() => { const m = new Map(); let run = 0; partyEntries.forEach(e => { run += e.amount; m.set(e.id, run); }); return { map:m, total:run }; }, [partyEntries]);
   const filteredEntries = useMemo(() => { if(!search.trim()) return partyEntries; const s = search.toLowerCase(); return partyEntries.filter(e => (dmy(e.date)+" "+(e.time||"")+" "+(e.counterPartyId||"")+" "+(e.remark||"")+" "+e.amount).toLowerCase().includes(s)); }, [partyEntries, search]);
 
-  // Select all checkbox logic
   const allVisibleChecked = filteredEntries.length > 0 && filteredEntries.every(e => e._checked);
   const someVisibleChecked = filteredEntries.some(e => e._checked) && !allVisibleChecked;
 
@@ -519,7 +519,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     if(filterFrom) src = src.filter(e => e.date >= filterFrom);
     if(filterTo) src = src.filter(e => e.date <= filterTo);
     const debitParties = [], creditParties = [];
-    // CHANGED: Now includes deactive parties too (so balance stays stable)
     parties.forEach(p => {
       const bal = src.filter(l=>l.partyId===p.id).reduce((a,e)=>a+e.amount,0);
       if(bal<0) debitParties.push({ party:p, bal:bal });
@@ -780,6 +779,32 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
     showToast("FR Excel exported");
   };
 
+  // NEW: Trial Balance Excel export
+  const exportTrialExcel = () => {
+    let csv = "TRIAL BALANCE\n";
+    csv += "From," + (filterFrom || "Start") + "\n";
+    csv += "To," + (filterTo || "End") + "\n";
+    csv += "Exported," + dmy(todayISO()) + " " + nowTime() + "\n";
+    csv += "By," + (profile?.username || "?") + "\n\n";
+
+    csv += "SECTION,PARTY,STATUS,BALANCE\n";
+    trial.debitParties.forEach(p => {
+      csv += "Debit," + p.party.id + "," + p.party.status + "," + p.bal + "\n";
+    });
+    trial.creditParties.forEach(p => {
+      csv += "Credit," + p.party.id + "," + p.party.status + "," + p.bal + "\n";
+    });
+
+    csv += "\nSUMMARY\n";
+    csv += "Total Debit," + trial.debit + "\n";
+    csv += "Total Credit," + trial.credit + "\n";
+    csv += "Difference," + Math.abs(trial.diff) + "\n";
+    csv += "Status," + trial.status + "\n";
+
+    downloadBlob(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}), "trial_balance_"+todayISO()+".csv");
+    showToast("Trial Balance Excel exported");
+  };
+
   const exportHistory = () => {
     let csv = "Date,Time,Action,Party,Old,New,Remark\n";
     history.forEach(x => csv += x.dateDisplay+","+x.timeDisplay+","+x.action+","+x.partyId+","+x.oldVal+","+x.newVal+',"'+(x.remark||"").replace(/"/g,'""')+'"\n');
@@ -815,7 +840,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         try {
           const d = JSON.parse(r.result);
 
-          // STEP 1: AUTO-BACKUP current state
           const currentStateBackup = {
             parties, ledgers, finals, pin, companyName, history,
             autoBackupAt: new Date().toISOString(),
@@ -827,7 +851,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
             "auto-backup_before-restore_"+todayISO()+"_"+nowTime().replace(":","-")+".json"
           );
 
-          // STEP 2: Apply restore
           const prevCount = ledgers.length;
           if(d.parties) setParties(d.parties);
           if(d.ledgers) setLedgers(d.ledgers);
@@ -835,7 +858,6 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
           if(d.pin) setPin(d.pin);
           if(d.companyName !== undefined) { setCompanyName(d.companyName || ""); setCompanyNameInput(d.companyName || ""); }
 
-          // STEP 3: History log
           const restoreLogEntry = {
             id: "h_"+Date.now(),
             dateDisplay: dmy(todayISO()),
@@ -978,7 +1000,7 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
             showColDropdown && h("div", { className:"absolute right-0 top-9 w-56 rounded-xl border shadow-2xl z-40 p-2 "+T.card },
               Object.entries(showCols).map(([k,v]) => h("label", { key:k, className:"flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 cursor-pointer text-[13px]" },
                 h("input", { type:"checkbox", tabIndex: -1, checked:v, onChange:()=>setShowCols(s=>Object.assign({},s,{[k]:!s[k]})) }),
-                h("span", { className:v?"":"opacity-40 line-through" }, k === "check" ? "✓ (Tick)" : k)
+                h("span", { className:v?"":"opacity-40 line-through" }, k)
               ))
             )
           )
@@ -988,43 +1010,36 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         h("table", { className:"w-full border-collapse", style:{fontSize:"13px"} },
           h("thead", { className:"sticky top-0 z-[5] "+T.tableHeader },
             h("tr", null,
-              showCols.check && h("th", { className:"py-1.5 px-2 text-center font-black text-[12px] uppercase tracking-wide", style:{width:"36px"} },
-                h("input", {
-                  type:"checkbox",
-                  tabIndex: -1,
-                  checked: allVisibleChecked,
-                  ref: (el) => { if (el) el.indeterminate = someVisibleChecked; },
-                  onChange: toggleAllVisible,
-                  disabled: filteredEntries.length === 0,
-                  className:"w-4 h-4 cursor-pointer accent-cyan-600 disabled:opacity-30",
-                  title: "Select All (visible)"
-                })
-              ),
               showCols.date && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Date"),
               showCols.counter && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Counter"),
               showCols.remark && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Remark"),
               showCols.debit && h("th", { className:"py-1.5 px-2 text-right font-black text-[12px] uppercase tracking-wide" }, "Debit"),
               showCols.credit && h("th", { className:"py-1.5 px-2 text-right font-black text-[12px] uppercase tracking-wide" }, "Credit"),
               showCols.balance && h("th", { className:"py-1.5 px-2 text-right font-black text-[12px] uppercase tracking-wide" }, "Balance"),
-              showCols.action && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" }, "Action")
+              showCols.action && h("th", { className:"py-1.5 px-2.5 text-left font-black text-[12px] uppercase tracking-wide" },
+                h("div", { className:"flex items-center gap-1.5" },
+                  h("input", {
+                    type:"checkbox",
+                    tabIndex: -1,
+                    checked: allVisibleChecked,
+                    ref: (el) => { if (el) el.indeterminate = someVisibleChecked; },
+                    onChange: toggleAllVisible,
+                    disabled: filteredEntries.length === 0,
+                    className:"cursor-pointer disabled:opacity-30",
+                    title: "Select All (visible entries)"
+                  }),
+                  h("span", null, "Action")
+                )
+              )
             )
           ),
           h("tbody", null,
-            filteredEntries.length===0 && h("tr", null, h("td", { colSpan:8, className:"p-6 text-center opacity-60" }, "No entries — Add new entry")),
+            filteredEntries.length===0 && h("tr", null, h("td", { colSpan:7, className:"p-6 text-center opacity-60" }, "No entries — Add new entry")),
             filteredEntries.map(e => {
               const bal = balMap.map.get(e.id) || 0;
               const locked = isLocked(e);
               const checked = !!e._checked;
               return h("tr", { key:e.id, className:"border-t "+(checked ? (theme==="midnight"?"bg-cyan-900/30":"bg-cyan-50") : "")+" "+(theme==="midnight"?"border-zinc-800 hover:bg-zinc-900":"border-gray-100 hover:bg-gray-50"), style:{height:"26px"} },
-                showCols.check && h("td", { className:"py-0.5 px-2 text-center" },
-                  h("input", {
-                    type:"checkbox",
-                    tabIndex: -1,
-                    checked: checked,
-                    onChange: () => toggleEntryCheck(e.id),
-                    className:"w-4 h-4 cursor-pointer accent-cyan-600"
-                  })
-                ),
                 showCols.date && h("td", { className:"py-0.5 px-2.5 font-mono text-[13px] font-semibold whitespace-nowrap" },
                   h("span", null, dmy(e.date)),
                   e.time && h("span", { className:"ml-2 text-[10px] opacity-60 font-bold" }, e.time.slice(0,5))
@@ -1035,14 +1050,21 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
                 showCols.credit && h("td", { className:"py-0.5 px-2 text-right font-mono text-[13px] font-bold" }, e.amount>0 ? h("span", { className:"text-green-600" }, fmtINR(e.amount)) : h("span", { className:"opacity-30" }, "-")),
                 showCols.balance && h("td", { className:"py-0.5 px-2 text-right font-mono text-[13px] font-black "+(bal<0?"text-red-600":"text-green-600") }, fmtINR(bal)),
                 showCols.action && h("td", { className:"py-0.5 px-2" },
-                  h("div", { className:"flex gap-1" },
+                  h("div", { className:"flex gap-1 items-center" },
+                    h("input", {
+                      type:"checkbox",
+                      tabIndex: -1,
+                      checked: checked,
+                      onChange: () => toggleEntryCheck(e.id),
+                      className:"mr-0.5"
+                    }),
                     h("button", { tabIndex: -1, onClick:()=>handleModify(e), disabled:locked, className:"px-1.5 py-0.5 rounded text-[10px] font-bold border "+(locked?"opacity-20 bg-gray-100 cursor-not-allowed":T.modBtn) }, "Mod"),
                     h("button", { tabIndex: -1, onClick:()=>handleDelete(e), disabled:locked, className:"px-1.5 py-0.5 rounded text-[10px] font-bold border "+(locked?"opacity-20 bg-gray-100 cursor-not-allowed":T.delBtn) }, "Del")
                   )
                 )
               );
             }),
-            h("tr", { ref: tableEndRef }, h("td", { colSpan:8, style:{height:"1px", padding:0, border:0} }))
+            h("tr", { ref: tableEndRef }, h("td", { colSpan:7, style:{height:"1px", padding:0, border:0} }))
           )
         )
       ),
@@ -1216,7 +1238,8 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
       h("input", { type:"date", tabIndex: -1, value:filterFrom, onChange:e=>setFilterFrom(e.target.value), className:"h-11 rounded-lg border px-3 text-[13px] font-bold "+T.input }),
       h("span", { className:"text-[13px] font-black" }, "To"),
       h("input", { type:"date", tabIndex: -1, value:filterTo, onChange:e=>setFilterTo(e.target.value), className:"h-11 rounded-lg border px-3 text-[13px] font-bold "+T.input }),
-      h("button", { tabIndex: -1, onClick:()=>{setFilterFrom("");setFilterTo("");}, className:"h-11 px-5 rounded-lg border text-[13px] font-black "+T.exportBtnAlt }, "Clear")
+      h("button", { tabIndex: -1, onClick:()=>{setFilterFrom("");setFilterTo("");}, className:"h-11 px-5 rounded-lg border text-[13px] font-black "+T.exportBtnAlt }, "Clear"),
+      h("button", { tabIndex: -1, onClick: exportTrialExcel, className:"h-11 px-5 rounded-lg text-[13px] font-black bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5 ml-auto" }, "📊 Excel Export")
     ),
     h("div", { className:"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" },
       h("div", { className:"rounded-xl border p-6 bg-red-50 border-red-200" },
@@ -1244,7 +1267,10 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         h("div", { className:"p-4 space-y-2" },
           trial.debitParties.length===0 ? h("div", { className:"text-center py-8 opacity-60 text-[13px] font-bold" }, "No debit parties") :
           trial.debitParties.map(p => h("div", { key:p.party.id, className:"flex justify-between items-center h-12 px-4 rounded-xl border border-red-100" },
-            h("span", { className:"font-black text-[14px]" }, p.party.id, p.party.status !== "Active" && h("span", { className:"ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700" }, "D")),
+            h("span", { className:"font-black text-[14px] flex items-center gap-2" },
+              p.party.id,
+              p.party.status !== "Active" && h("span", { className:"text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700" }, "D")
+            ),
             h("span", { className:"font-mono font-black text-red-600 text-[14px]" }, fmtINR(p.bal))
           ))
         )
@@ -1254,7 +1280,10 @@ function OriginalApp({ onLogout, cloudState, saveCloud, cloudSaveStatus, profile
         h("div", { className:"p-4 space-y-2" },
           trial.creditParties.length===0 ? h("div", { className:"text-center py-8 opacity-60 text-[13px] font-bold" }, "No credit parties") :
           trial.creditParties.map(p => h("div", { key:p.party.id, className:"flex justify-between items-center h-12 px-4 rounded-xl border border-green-100" },
-            h("span", { className:"font-black text-[14px]" }, p.party.id, p.party.status !== "Active" && h("span", { className:"ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700" }, "D")),
+            h("span", { className:"font-black text-[14px] flex items-center gap-2" },
+              p.party.id,
+              p.party.status !== "Active" && h("span", { className:"text-[10px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-700" }, "D")
+            ),
             h("span", { className:"font-mono font-black text-green-600 text-[14px]" }, fmtINR(p.bal))
           ))
         )
